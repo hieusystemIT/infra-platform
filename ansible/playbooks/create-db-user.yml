@@ -1,0 +1,17 @@
+---
+- name: Setup PostgreSQL database and user
+  hosts: postgres
+  become: true
+
+  tasks:
+    - name: Create database g-pay
+      shell: psql -U postgres -c "CREATE DATABASE \"g-pay\";" 
+      ignore_errors: yes
+
+    - name: Create user hieudd
+      shell: psql -U postgres -c "CREATE USER hieudd WITH PASSWORD 'abc@123';"
+      ignore_errors: yes
+
+    - name: Grant all privileges on g-pay to hieudd
+      shell: psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE \"g-pay\" TO hieudd;"
+      ignore_errors: yes

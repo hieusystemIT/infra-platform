@@ -1,0 +1,10 @@
+apiVersion: getambassador.io/v3alpha1
+kind: Host
+metadata:
+  name: {{ .Release.Name }}-host
+  namespace: {{ .Release.Namespace }}
+spec:
+  hostname: {{ .Values.hostname | quote }}
+  requestPolicy:
+    insecure:
+      action: {{ .Values.insecureAction }}

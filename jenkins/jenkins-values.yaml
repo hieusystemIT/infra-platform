@@ -1,0 +1,63 @@
+agent:
+  enabled: true
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+controller:
+  JCasC:
+    configScripts:
+      welcome-message: |
+        jenkins:
+          systemMessage: "Helm/chart + jenkins ambassador"
+    defaultConfig: true
+  admin:
+    existingSecret: jenkins-admin
+    passwordKey: jenkins-admin-password
+    userKey: jenkins-admin-user
+  image:
+    registry: docker.io
+    repository: jenkins/jenkins
+    tag: 2.555.2-lts-jdk21
+  ingress:
+    enabled: false
+  installPlugins:
+  - kubernetes
+  - workflow-aggregator
+  - git
+  - configuration-as-code
+  - credentials-binding
+  - job-dsl
+  - blueocean
+  jenkinsUrl: http://jenkins.bambi.io.vn
+  probes:
+    livenessProbe:
+      failureThreshold: 5
+      initialDelaySeconds: 90
+      periodSeconds: 10
+    startupProbe:
+      failureThreshold: 30
+      initialDelaySeconds: 60
+      periodSeconds: 10
+  resources:
+    limits:
+      cpu: 1500m
+      memory: 1500Mi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  servicePort: 8080
+  serviceType: ClusterIP
+persistence:
+  accessMode: ReadWriteOnce
+  enabled: true
+  size: 10Gi
+  storageClass: standard-rwo
+rbac:
+  create: true
+serviceAccount:
+  create: true
+  name: jenkins

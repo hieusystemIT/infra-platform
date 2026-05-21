@@ -1,0 +1,11 @@
+createDefaultListeners: true
+replicaCount: 1
+resources:
+  limits:
+    cpu: 500m
+    memory: 600Mi
+  requests:
+    cpu: 100m
+    memory: 200Mi
+service:
+  type: LoadBalancer

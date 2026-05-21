@@ -1,0 +1,6 @@
+hostname: jenkins.bambi.io.vn
+service: jenkins.jenkins:8080
+prefix: /
+timeout_ms: 60000
+idle_timeout_ms: 60000
+insecureAction: Route
