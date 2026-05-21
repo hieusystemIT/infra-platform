@@ -5,13 +5,16 @@
 
   tasks:
     - name: Create database g-pay
-      shell: psql -U postgres -c "CREATE DATABASE \"g-pay\";" 
+      shell: psql -c "CREATE DATABASE \"g-pay\";"
+      become_user: postgres
       ignore_errors: yes
 
     - name: Create user hieudd
-      shell: psql -U postgres -c "CREATE USER hieudd WITH PASSWORD 'abc@123';"
+      shell: psql -c "CREATE USER hieudd WITH PASSWORD 'changeme123';"
+      become_user: postgres
       ignore_errors: yes
 
     - name: Grant all privileges on g-pay to hieudd
-      shell: psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE \"g-pay\" TO hieudd;"
+      shell: psql -c "GRANT ALL PRIVILEGES ON DATABASE \"g-pay\" TO hieudd;"
+      become_user: postgres
       ignore_errors: yes
