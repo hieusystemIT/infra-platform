@@ -1,0 +1,70 @@
+grafana:
+  adminPassword: "abc@123"
+  service:
+    type: ClusterIP
+
+prometheus:
+  prometheusSpec:
+    retention: 7d
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+alertmanager:
+  enabled: true
+  config:
+    global:
+      resolve_timeout: 5m
+    receivers:
+      - name: telegram
+        telegram_configs:
+          - bot_token: "8964077336:AAFKXZJbL7iPtuJfYpnuVGlHGml0s1o6Sck"
+            chat_id: 1640658111
+            message: |
+              🚨 CẢNH BÁO HỆ THỐNG
+              {{ range .Alerts }}
+              ▪️ Alert: {{ .Labels.alertname }}
+              📌 Mô tả: {{ .Annotations.summary }}
+              📋 Chi tiết: {{ .Annotations.description }}
+              ---
+              {{ end }}
+              Trạng thái: {{ .Status }}
+      - name: "null"
+    route:
+      receiver: telegram
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 1m
+      routes:
+        - matchers:
+            - alertname = "Watchdog"
+          receiver: "null"
+
+coreDns:
+  enabled: false
+
+kubeControllerManager:
+  enabled: false
+
+kubeScheduler:
+  enabled: false
+
+kubeEtcd:
+  enabled: false
+
+additionalPrometheusRulesMap:
+  test-alert:
+    groups:
+      - name: test
+        rules:
+          - alert: TestCanhBao
+            expr: vector(1)
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Đây là alert test từ Prometheus"
