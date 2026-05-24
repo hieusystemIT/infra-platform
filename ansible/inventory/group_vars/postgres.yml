@@ -1,0 +1,7 @@
+pg_database: g-pay
+
+pg_users:
+  - name: hieudd
+    password: "abc@123"
+    db_privs: "CONNECT" #premission databases
+    table_privs: "SELECT,INSERT,UPDATE"

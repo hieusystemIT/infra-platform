@@ -1,0 +1,69 @@
+---
+- name: Setup SFTP server
+  hosts: sftp
+  become: true
+
+  tasks:
+    - name: Create user
+      user:
+        name: "{{ item.0.user }}"
+        password: "{{ item.1.password | password_hash('sha512') }}"
+        home: "{{ item.1.home }}"
+        create_home: false
+        shell: /sbin/nologin
+      loop: "{{ sftp | subelements('general') }}"
+      loop_control:
+        label: "user: {{ item[0].user }}"
+
+    - name: Create sftp folder
+      file:
+        path: "{{ item.1.path }}"
+        state: directory
+        owner: "{{ item.1.owner }}"
+        group: "{{ item.0.user }}"
+        mode: "{{ item.1.chmod | default(omit) }}"
+      loop: "{{ sftp | subelements('permission_folder') }}"
+      loop_control:
+        label: "path: {{ item[1].path }}"
+
+    - name: Create sftp folder for reconcile
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ sftp_user }}"
+        group: "{{ sftp_user }}"
+      loop: "{{ sftp_data }}"
+
+    - name: sshd | enable password authentication
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PasswordAuthentication.*no$'
+        line: PasswordAuthentication yes
+
+    - name: sshd | enable password authentication in cloud config
+      lineinfile:
+        path: /etc/ssh/sshd_config.d/60-cloudimg-settings.conf
+        regexp: '^PasswordAuthentication.*no$'
+        line: PasswordAuthentication yes
+
+    - name: sshd | config chroot for user
+      blockinfile:
+        path: /etc/ssh/sshd_config
+        block: |
+          Match User {{ item.0.user }}
+            ChrootDirectory {{ item.1.chroot_path }}
+            ForceCommand internal-sftp
+          Match all
+        marker: "# {mark} ANSIBLE MANAGED BLOCK {{ item.0.user }}"
+      loop: "{{ sftp | subelements('general') }}"
+
+    - name: sshd | check config valid
+      shell: sshd -T
+      register: sshd_verify
+      ignore_errors: yes
+
+    - name: sshd | restart service
+      systemd:
+        name: sshd
+        state: restarted
+      when: sshd_verify.rc == 0

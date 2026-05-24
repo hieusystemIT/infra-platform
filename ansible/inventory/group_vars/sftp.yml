@@ -1,0 +1,18 @@
+sftp_user: sftp-hieudd
+
+sftp:
+  - user: sftp-hieudd
+    general:
+      - password: "abc@123"
+        home: /data/sftp-hieudd
+        chroot_path: /data/sftp-hieudd
+    permission_folder:
+      - path: /data/sftp-hieudd
+        owner: root
+        chmod: "755"
+      - path: /data/sftp-hieudd/upload
+        owner: sftp-hieudd
+        chmod: "755"
+
+sftp_data:
+  - /data/sftp-hieudd/reconcile

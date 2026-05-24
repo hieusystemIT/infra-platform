@@ -1,0 +1,24 @@
+---
+- name: Setup PostgreSQL database and user
+  hosts: postgres
+  become: true
+
+  tasks:
+    - name: Create database
+      shell: sudo -u postgres psql -c "CREATE DATABASE \"{{ pg_database }}\";"
+      ignore_errors: yes
+
+    - name: Create user
+      shell: sudo -u postgres psql -c "CREATE USER {{ item.name }} WITH PASSWORD '{{ item.password }}';"
+      loop: "{{ pg_users }}"
+      ignore_errors: yes
+
+    - name: Grant database privileges
+      shell: sudo -u postgres psql -c "GRANT {{ item.db_privs }} ON DATABASE \"{{ pg_database }}\" TO {{ item.name }};"
+      loop: "{{ pg_users }}"
+      ignore_errors: yes
+
+    - name: Grant table privileges
+      shell: sudo -u postgres psql -d "{{ pg_database }}" -c "GRANT {{ item.table_privs }} ON ALL TABLES IN SCHEMA public TO {{ item.name }};"
+      loop: "{{ pg_users }}"
+      ignore_errors: yes
