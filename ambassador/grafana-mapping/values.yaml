@@ -1,0 +1,6 @@
+hostname: gr.bambi.io.vn
+service: kube-prometheus-stack-grafana.monitoring:80
+prefix: /
+timeout_ms: 60000
+idle_timeout_ms: 60000
+insecureAction: Route
