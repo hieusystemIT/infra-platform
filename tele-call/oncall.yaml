@@ -1,8 +1,14 @@
 schedule:
-  - name: "Hùng test"
+  - name: "test call"
+    telegram: "@xuanquynhqbf"
+    days: [2, 3, 4, 5, 6]
+    hours:
+      - start: "08:30"
+        end: "23:30"
+  
+  - name: "test call 2"
     telegram: "@SeanNG21"
     days: [2, 3, 4, 5, 6]
-    hours: #time trực ca
-  - start: 8:30
-    end: 17:30
-
+    hours:
+      - start: "08:30"
+        end: "23:30" 

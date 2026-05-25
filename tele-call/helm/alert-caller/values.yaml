@@ -28,9 +28,16 @@ resources:
 
 oncall:
   schedule:
-    - name: "Hùng test"
+    - name: "coach Quynh"
+      telegram: "@xuanquynhqbf"
+      days: [2, 3, 4, 5, 6]
+      hours:
+        - start: "08:30"
+          end: "23:30"
+        
+    - name: "hieudd"
       telegram: "@SeanNG21"
       days: [2, 3, 4, 5, 6]
       hours:
         - start: "08:30"
-          end: "17:30"
+          end: "23:30"

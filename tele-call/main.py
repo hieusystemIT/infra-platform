@@ -33,7 +33,7 @@ client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 
 # ============================================================
-# XÁC ĐỊNH NGƯỜI ĐANG TRỰC
+# XÁC ĐỊNH NGƯỜI ĐANG TRỰC (trả về list để gọi nhiều người)
 # ============================================================
 def parse_time(t: str):
     # Convert "08:30" -> 510 (phút) để so sánh dễ hơn
@@ -41,7 +41,7 @@ def parse_time(t: str):
     return h * 60 + m
 
 
-def get_oncall_user():
+def get_oncall_users() -> list:
     with open(ONCALL_CONFIG) as f:
         schedule = yaml.safe_load(f)["schedule"]
 
@@ -54,7 +54,9 @@ def get_oncall_user():
     if weekday > 8:
         weekday = weekday - 7
 
+    matched = []
     for person in schedule:
+        # Bỏ qua nếu hôm nay không phải ngày trực của người này
         if weekday not in person.get("days", list(range(2, 9))):
             continue
         for slot in person["hours"]:
@@ -63,8 +65,9 @@ def get_oncall_user():
             # Xử lý ca đêm qua ngày (vd: 23:00 -> 08:00)
             in_range = (s <= current < e) if s < e else (current >= s or current < e)
             if in_range:
-                return person
-    return None
+                matched.append(person)
+                break  # mỗi người chỉ add 1 lần dù có nhiều slot
+    return matched
 
 
 # ============================================================
@@ -100,48 +103,51 @@ async def alertmanager_webhook(request: Request):
     if not alerts:
         return {"status": "no_firing_alerts"}
 
-    oncall = get_oncall_user()
-    if not oncall:
+    # Lấy tất cả người đang trực trong khung giờ hiện tại
+    oncall_users = get_oncall_users()
+    if not oncall_users:
         logger.warning("No on-call user matched current time slot")
         return {"status": "no_oncall_matched"}
 
-    message    = build_message(alerts, oncall["name"])
-    target     = oncall["telegram"]
     severities = {a["labels"].get("severity", "") for a in alerts}
+    alerted    = []
 
-    logger.info(f"Alerting {oncall['name']} ({target})")
+    for oncall in oncall_users:
+        target  = oncall["telegram"]
+        message = build_message(alerts, oncall["name"])
 
-    try:
-        entity = await client.get_input_entity(target)
+        try:
+            entity = await client.get_input_entity(target)
 
-        # Gửi tin nhắn Telegram
-        await client.send_message(entity, message)
-        logger.info("Message sent")
+            # Gửi tin nhắn Telegram
+            await client.send_message(entity, message)
+            logger.info(f"Message sent to {oncall['name']} ({target})")
 
-        # Nếu có alert critical -> gọi điện Telegram
-        if "critical" in severities:
-            g_a_hash = hashlib.sha256(os.urandom(256)).digest()
-            await client(RequestCallRequest(
-                user_id=entity,
-                random_id=random.randint(1, 0x7FFFFFFF),
-                g_a_hash=g_a_hash,
-                protocol=PhoneCallProtocol(
-                    udp_p2p=True,
-                    udp_reflector=True,
-                    min_layer=65,
-                    max_layer=92,
-                    library_versions=["3.0.0"],
-                ),
-            ))
-            logger.info("Call initiated")
+            # Nếu có alert critical -> gọi điện Telegram
+            if "critical" in severities:
+                g_a_hash = hashlib.sha256(os.urandom(256)).digest()
+                await client(RequestCallRequest(
+                    user_id=entity,
+                    random_id=random.randint(1, 0x7FFFFFFF),
+                    g_a_hash=g_a_hash,
+                    protocol=PhoneCallProtocol(
+                        udp_p2p=True,
+                        udp_reflector=True,
+                        min_layer=65,
+                        max_layer=92,
+                        library_versions=["3.0.0"],
+                    ),
+                ))
+                logger.info(f"Call initiated to {oncall['name']}")
 
-    except Exception as e:
-        logger.error(f"Failed to alert: {e}")
-        return {"status": "error", "detail": str(e)}
+            alerted.append(oncall["name"])
+
+        except Exception as e:
+            logger.error(f"Failed to alert {oncall['name']}: {e}")
 
     return {
         "status": "ok",
-        "alerted": oncall["name"],
+        "alerted": alerted,
         "alerts_count": len(alerts),
         "called": "critical" in severities,
     }
