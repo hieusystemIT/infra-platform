@@ -1,0 +1,8 @@
+schedule:
+  - name: "Hùng test"
+    telegram: "@SeanNG21"
+    days: [0, 1, 2, 3, 4]
+    hours: #time trực ca
+      - start: 8
+        end: 17
+
