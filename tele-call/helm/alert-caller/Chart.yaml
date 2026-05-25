@@ -1,0 +1,6 @@
+apiVersion: v2
+name: alert-caller
+description: Telegram on-call alert caller
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

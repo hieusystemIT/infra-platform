@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: alert-caller-svc
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: alert-caller
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app: alert-caller
+  ports:
+    - protocol: TCP
+      port: {{ .Values.service.port }}
+      targetPort: 8000

@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 from fastapi import FastAPI, Request
 from telethon import TelegramClient
+from telethon.sessions import StringSession
 from telethon.tl.functions.phone import RequestCallRequest
 from telethon.tl.types import PhoneCallProtocol
 import pytz
@@ -22,12 +23,13 @@ app = FastAPI()
 # ============================================================
 API_ID        = int(os.environ["API_ID"])        # api_id từ my.telegram.org
 API_HASH      = os.environ["API_HASH"]            # api_hash từ my.telegram.org
-SESSION       = os.environ.get("SESSION_PATH", "./alert")   # path tới file alert.session
+#SESSION       = os.environ.get("SESSION_PATH", "/sessions/alert")   # path tới file alert.session
 TIMEZONE      = os.environ.get("TIMEZONE", "Asia/Ho_Chi_Minh")
 ONCALL_CONFIG = os.environ.get("ONCALL_CONFIG", "./oncall.yaml")
 
 # Khởi tạo Telethon client dùng user account thật
-client = TelegramClient(SESSION, API_ID, API_HASH)
+SESSION_STRING = os.environ.get("SESSION_STRING", "")
+client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 
 # ============================================================

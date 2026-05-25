@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-caller
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: alert-caller
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: alert-caller
+  template:
+    metadata:
+      labels:
+        app: alert-caller
+    spec:
+      containers:
+        - name: alert-caller
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8000
+          env:
+            - name: API_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.telegram.credentialsSecret }}
+                  key: api_id
+            - name: API_HASH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.telegram.credentialsSecret }}
+                  key: api_hash
+            - name: SESSION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: telegram-session-string
+                  key: session_string
+            - name: ONCALL_CONFIG
+              value: "/config/oncall.yaml"
+            - name: TIMEZONE
+              value: {{ .Values.env.timezone | quote }}
+          volumeMounts:
+            - name: oncall-config
+              mountPath: /config
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: {{ .Values.resources.requests.cpu }}
+              memory: {{ .Values.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.resources.limits.cpu }}
+              memory: {{ .Values.resources.limits.memory }}
+      volumes:
+        - name: oncall-config
+          configMap:
+            name: oncall-config

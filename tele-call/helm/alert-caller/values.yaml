@@ -1,0 +1,27 @@
+replicaCount: 1
+
+image:
+  repository: us-central1-docker.pkg.dev/project-52700b7f-e48a-4255-bd4/tele-call/alert-caller
+  tag: "latest"
+  pullPolicy: Always
+
+namespace: alert-caller
+
+env:
+  timezone: "Asia/Ho_Chi_Minh"
+
+telegram:
+  credentialsSecret: telegram-credentials
+  sessionSecret: telegram-session
+
+service:
+  type: ClusterIP
+  port: 8000
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
