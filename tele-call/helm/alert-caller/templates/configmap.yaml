@@ -5,4 +5,14 @@ metadata:
   namespace: {{ .Values.namespace }}
 data:
   oncall.yaml: |
-{{ .Files.Get "oncall.yaml" | indent 4 }}
+    schedule:
+    {{- range .Values.oncall.schedule }}
+      - name: {{ .name | quote }}
+        telegram: {{ .telegram | quote }}
+        days: {{ .days | toJson }}
+        hours:
+        {{- range .hours }}
+          - start: {{ .start | quote }}
+            end: {{ .end | quote }}
+        {{- end }}
+    {{- end }}

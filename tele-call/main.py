@@ -1,6 +1,7 @@
 import os
 import yaml
 import random
+import hashlib
 import logging
 from datetime import datetime
 from fastapi import FastAPI, Request
@@ -21,9 +22,8 @@ app = FastAPI()
 # ============================================================
 # CONFIG - đọc từ environment variable, không hardcode
 # ============================================================
-API_ID        = int(os.environ["API_ID"])        # api_id từ my.telegram.org
-API_HASH      = os.environ["API_HASH"]            # api_hash từ my.telegram.org
-#SESSION       = os.environ.get("SESSION_PATH", "/sessions/alert")   # path tới file alert.session
+API_ID        = int(os.environ["API_ID"])
+API_HASH      = os.environ["API_HASH"]
 TIMEZONE      = os.environ.get("TIMEZONE", "Asia/Ho_Chi_Minh")
 ONCALL_CONFIG = os.environ.get("ONCALL_CONFIG", "./oncall.yaml")
 
@@ -42,13 +42,12 @@ def parse_time(t: str):
 
 
 def get_oncall_user():
-    # Đọc file oncall.yaml
     with open(ONCALL_CONFIG) as f:
         schedule = yaml.safe_load(f)["schedule"]
 
     tz      = pytz.timezone(TIMEZONE)
     now     = datetime.now(tz)
-    current = now.hour * 60 + now.minute  # thời điểm hiện tại tính bằng phút
+    current = now.hour * 60 + now.minute
 
     # Convert weekday: Python 0=Mon -> mình dùng 2=Thứ2 ... 8=Chủ nhật
     weekday = now.weekday() + 2
@@ -56,7 +55,6 @@ def get_oncall_user():
         weekday = weekday - 7
 
     for person in schedule:
-        # Bỏ qua nếu hôm nay không phải ngày trực của người này
         if weekday not in person.get("days", list(range(2, 9))):
             continue
         for slot in person["hours"]:
@@ -65,8 +63,8 @@ def get_oncall_user():
             # Xử lý ca đêm qua ngày (vd: 23:00 -> 08:00)
             in_range = (s <= current < e) if s < e else (current >= s or current < e)
             if in_range:
-                return person  # trả về người đang trực
-    return None  # không có ai trực trong khung giờ này
+                return person
+    return None
 
 
 # ============================================================
@@ -102,7 +100,6 @@ async def alertmanager_webhook(request: Request):
     if not alerts:
         return {"status": "no_firing_alerts"}
 
-    # Xác định người đang trực theo giờ hiện tại
     oncall = get_oncall_user()
     if not oncall:
         logger.warning("No on-call user matched current time slot")
@@ -121,12 +118,13 @@ async def alertmanager_webhook(request: Request):
         await client.send_message(entity, message)
         logger.info("Message sent")
 
-        # Nếu có alert critical -> gọi điện thêm
+        # Nếu có alert critical -> gọi điện Telegram
         if "critical" in severities:
+            g_a_hash = hashlib.sha256(os.urandom(256)).digest()
             await client(RequestCallRequest(
                 user_id=entity,
                 random_id=random.randint(1, 0x7FFFFFFF),
-                g_a_hash=bytes(256),
+                g_a_hash=g_a_hash,
                 protocol=PhoneCallProtocol(
                     udp_p2p=True,
                     udp_reflector=True,
@@ -150,7 +148,7 @@ async def alertmanager_webhook(request: Request):
 
 
 # ============================================================
-# HEALTH CHECK - Kubernetes dùng để check app còn sống không
+# HEALTH CHECK
 # ============================================================
 @app.get("/healthz")
 async def health():
@@ -158,7 +156,7 @@ async def health():
 
 
 # ============================================================
-# STARTUP / SHUTDOWN - kết nối Telethon khi app khởi động
+# STARTUP / SHUTDOWN
 # ============================================================
 @app.on_event("startup")
 async def startup():
