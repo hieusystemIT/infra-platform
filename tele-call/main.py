@@ -20,61 +20,61 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 
 # ============================================================
-# CONFIG - đọc từ environment variable, không hardcode
+# CONFIG
 # ============================================================
 API_ID        = int(os.environ["API_ID"])
 API_HASH      = os.environ["API_HASH"]
 TIMEZONE      = os.environ.get("TIMEZONE", "Asia/Ho_Chi_Minh")
 ONCALL_CONFIG = os.environ.get("ONCALL_CONFIG", "./oncall.yaml")
 
-# Khởi tạo Telethon client dùng user account thật
 SESSION_STRING = os.environ.get("SESSION_STRING", "")
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 
 # ============================================================
-# XÁC ĐỊNH NGƯỜI ĐANG TRỰC (trả về list để gọi nhiều người)
+# XÁC ĐỊNH NGƯỜI ĐANG TRỰC
 # ============================================================
 def parse_time(t: str):
-    # Convert "08:30" -> 510 (phút) để so sánh dễ hơn
     h, m = map(int, t.split(":"))
     return h * 60 + m
 
 
-def get_oncall_users() -> list:
+def load_config():
     with open(ONCALL_CONFIG) as f:
-        schedule = yaml.safe_load(f)["schedule"]
+        return yaml.safe_load(f)
+
+
+def get_oncall_users() -> list:
+    config  = load_config()
+    schedule = config["schedule"]
 
     tz      = pytz.timezone(TIMEZONE)
     now     = datetime.now(tz)
     current = now.hour * 60 + now.minute
 
-    # Convert weekday: Python 0=Mon -> mình dùng 2=Thứ2 ... 8=Chủ nhật
     weekday = now.weekday() + 2
     if weekday > 8:
         weekday = weekday - 7
 
     matched = []
     for person in schedule:
-        # Bỏ qua nếu hôm nay không phải ngày trực của người này
         if weekday not in person.get("days", list(range(2, 9))):
             continue
         for slot in person["hours"]:
             s = parse_time(str(slot["start"]))
             e = parse_time(str(slot["end"]))
-            # Xử lý ca đêm qua ngày (vd: 23:00 -> 08:00)
             in_range = (s <= current < e) if s < e else (current >= s or current < e)
             if in_range:
                 matched.append(person)
-                break  # mỗi người chỉ add 1 lần dù có nhiều slot
+                break
     return matched
 
 
 # ============================================================
-# TẠO NỘI DUNG TIN NHẮN TỪ ALERT
+# TẠO NỘI DUNG TIN NHẮN
 # ============================================================
-def build_message(alerts: list, oncall_name: str) -> str:
-    lines = [f"ALERT - On-call: {oncall_name}\n"]
+def build_message(alerts: list) -> str:
+    lines = ["🚨 DEVOPS ALERT\n"]
     for alert in alerts:
         name     = alert["labels"].get("alertname", "Unknown")
         severity = alert["labels"].get("severity", "unknown").upper()
@@ -91,65 +91,67 @@ def build_message(alerts: list, oncall_name: str) -> str:
 
 
 # ============================================================
-# WEBHOOK - nhận alert từ Alertmanager
+# WEBHOOK
 # ============================================================
 @app.post("/webhook")
 async def alertmanager_webhook(request: Request):
     body   = await request.json()
-
-    # Chỉ xử lý alert đang firing, bỏ qua resolved
     alerts = [a for a in body.get("alerts", []) if a["status"] == "firing"]
 
     if not alerts:
         return {"status": "no_firing_alerts"}
 
-    # Lấy tất cả người đang trực trong khung giờ hiện tại
     oncall_users = get_oncall_users()
     if not oncall_users:
         logger.warning("No on-call user matched current time slot")
         return {"status": "no_oncall_matched"}
 
-    severities = {a["labels"].get("severity", "") for a in alerts}
-    alerted    = []
+    config       = load_config()
+    group_chat_id = config.get("group_chat_id")
+    message      = build_message(alerts)
+    severities   = {a["labels"].get("severity", "") for a in alerts}
+    alerted      = []
 
-    for oncall in oncall_users:
-        target  = oncall["telegram"]
-        message = build_message(alerts, oncall["name"])
+    try:
+        # Gửi message vào GROUP
+        if group_chat_id:
+            group_entity = await client.get_input_entity(int(group_chat_id))
+            await client.send_message(group_entity, message)
+            logger.info(f"Message sent to group {group_chat_id}")
 
-        try:
-            entity = await client.get_input_entity(target)
+        # Gọi điện cho từng người trực nếu critical
+        if "critical" in severities:
+            for oncall in oncall_users:
+                target = oncall["telegram"]
+                try:
+                    entity   = await client.get_input_entity(target)
+                    g_a_hash = hashlib.sha256(os.urandom(256)).digest()
+                    await client(RequestCallRequest(
+                        user_id=entity,
+                        random_id=random.randint(1, 0x7FFFFFFF),
+                        g_a_hash=g_a_hash,
+                        protocol=PhoneCallProtocol(
+                            udp_p2p=True,
+                            udp_reflector=True,
+                            min_layer=65,
+                            max_layer=92,
+                            library_versions=["3.0.0"],
+                        ),
+                    ))
+                    logger.info(f"Call initiated to {oncall['name']}")
+                    alerted.append(oncall["name"])
+                except Exception as e:
+                    logger.error(f"Failed to call {oncall['name']}: {e}")
 
-            # Gửi tin nhắn Telegram
-            await client.send_message(entity, message)
-            logger.info(f"Message sent to {oncall['name']} ({target})")
-
-            # Nếu có alert critical -> gọi điện Telegram
-            if "critical" in severities:
-                g_a_hash = hashlib.sha256(os.urandom(256)).digest()
-                await client(RequestCallRequest(
-                    user_id=entity,
-                    random_id=random.randint(1, 0x7FFFFFFF),
-                    g_a_hash=g_a_hash,
-                    protocol=PhoneCallProtocol(
-                        udp_p2p=True,
-                        udp_reflector=True,
-                        min_layer=65,
-                        max_layer=92,
-                        library_versions=["3.0.0"],
-                    ),
-                ))
-                logger.info(f"Call initiated to {oncall['name']}")
-
-            alerted.append(oncall["name"])
-
-        except Exception as e:
-            logger.error(f"Failed to alert {oncall['name']}: {e}")
+    except Exception as e:
+        logger.error(f"Failed to send group message: {e}")
+        return {"status": "error", "detail": str(e)}
 
     return {
         "status": "ok",
-        "alerted": alerted,
+        "group_notified": bool(group_chat_id),
+        "called": alerted,
         "alerts_count": len(alerts),
-        "called": "critical" in severities,
     }
 
 

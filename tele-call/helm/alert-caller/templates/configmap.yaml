@@ -5,6 +5,7 @@ metadata:
   namespace: {{ .Values.namespace }}
 data:
   oncall.yaml: |
+    group_chat_id: {{ .Values.oncall.group_chat_id | quote }}
     schedule:
     {{- range .Values.oncall.schedule }}
       - name: {{ .name | quote }}
