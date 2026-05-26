@@ -2,7 +2,7 @@ replicaCount: 1
 
 image:
   repository: us-central1-docker.pkg.dev/project-52700b7f-e48a-4255-bd4/tele-call/alert-caller
-  tag: "latest"
+  tag: "v2"
   pullPolicy: Always
 
 namespace: alert-caller
