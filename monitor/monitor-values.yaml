@@ -16,6 +16,20 @@ prometheus:
 
 alertmanager:
   enabled: true
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ['alertname', 'namespace']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 1h
+      receiver: 'oncall-webhook'
+    receivers:
+      - name: 'oncall-webhook'
+        webhook_configs:
+          - url: 'http://alert-caller-svc.alert-caller.svc.cluster.local:8000/webhook'
+            send_resolved: false
 
 coreDns:
   enabled: false
