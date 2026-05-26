@@ -3,12 +3,15 @@ import yaml
 import random
 import hashlib
 import logging
+import asyncio
 from datetime import datetime
 from fastapi import FastAPI, Request
-from telethon import TelegramClient
+from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from telethon.tl.functions.phone import RequestCallRequest
-from telethon.tl.types import PhoneCallProtocol
+from telethon.tl import types
+from telethon.tl.functions.phone import RequestCallRequest, DiscardCallRequest
+from telethon.tl.functions.messages import GetMessageReadParticipantsRequest
+from telethon.tl.types import PhoneCallProtocol, PhoneCallDiscardReasonHangup
 import pytz
 
 # ============================================================
@@ -22,10 +25,14 @@ app = FastAPI()
 # ============================================================
 # CONFIG
 # ============================================================
-API_ID        = int(os.environ["API_ID"])
-API_HASH      = os.environ["API_HASH"]
-TIMEZONE      = os.environ.get("TIMEZONE", "Asia/Ho_Chi_Minh")
-ONCALL_CONFIG = os.environ.get("ONCALL_CONFIG", "./oncall.yaml")
+API_ID           = int(os.environ["API_ID"])
+API_HASH         = os.environ["API_HASH"]
+TIMEZONE         = os.environ.get("TIMEZONE", "Asia/Ho_Chi_Minh")
+ONCALL_CONFIG    = os.environ.get("ONCALL_CONFIG", "./oncall.yaml")
+WAIT_BEFORE_CALL = int(os.environ.get("WAIT_BEFORE_CALL", "120"))
+CALL_TIMEOUT     = int(os.environ.get("CALL_TIMEOUT", "60"))
+MAX_RETRIES      = int(os.environ.get("MAX_RETRIES", "3"))
+RETRY_DELAY      = int(os.environ.get("RETRY_DELAY", "5"))
 
 SESSION_STRING = os.environ.get("SESSION_STRING", "")
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
@@ -45,7 +52,7 @@ def load_config():
 
 
 def get_oncall_users() -> list:
-    config  = load_config()
+    config   = load_config()
     schedule = config["schedule"]
 
     tz      = pytz.timezone(TIMEZONE)
@@ -71,10 +78,10 @@ def get_oncall_users() -> list:
 
 
 # ============================================================
-# TẠO NỘI DUNG TIN NHẮN
+# TẠO NỘI DUNG TIN NHẮN CÓ TAG NGƯỜI TRỰC
 # ============================================================
-def build_message(alerts: list) -> str:
-    lines = ["🚨 DEVOPS ALERT\n"]
+def build_message(alerts: list, oncall_users: list) -> str:
+    lines = ["DEVOPS ALERT\n"]
     for alert in alerts:
         name     = alert["labels"].get("alertname", "Unknown")
         severity = alert["labels"].get("severity", "unknown").upper()
@@ -87,7 +94,150 @@ def build_message(alerts: list) -> str:
             f"Pod: {pod}\n"
             f"{summary}"
         )
+
+    mentions = " ".join([f"@{p['telegram'].lstrip('@')}" for p in oncall_users])
+    lines.append(f"\n{mentions} vui lòng xem alert này!")
+
     return "\n\n".join(lines)
+
+
+# ============================================================
+# GỌI ĐIỆN VỚI RETRY
+# Logic:
+#   - Tắt máy sớm (< 30s) → DECLINED → dừng retry
+#   - Timeout (>= 60s)    → TIMEOUT  → gọi lại sau 5s
+#   - Tối đa MAX_RETRIES lần
+# ============================================================
+async def call_with_retry(entity, name: str):
+    for attempt in range(1, MAX_RETRIES + 1):
+        logger.info(f"[CALL] {name} — attempt {attempt}/{MAX_RETRIES} starting")
+        responded = False
+
+        try:
+            g_a_hash = hashlib.sha256(os.urandom(256)).digest()
+            result   = await client(RequestCallRequest(
+                user_id=entity,
+                random_id=random.randint(1, 0x7FFFFFFF),
+                g_a_hash=g_a_hash,
+                protocol=PhoneCallProtocol(
+                    udp_p2p=True,
+                    udp_reflector=True,
+                    min_layer=65,
+                    max_layer=92,
+                    library_versions=["3.0.0"],
+                ),
+            ))
+            logger.info(f"[CALL] {name} — ringing...")
+            call_start   = asyncio.get_event_loop().time()
+            discard_event = asyncio.Event()
+
+            # Lắng nghe Telegram báo call bị discard
+            @client.on(events.Raw(types.UpdatePhoneCall))
+            async def call_handler(event):
+                if hasattr(event.phone_call, 'reason'):
+                    discard_event.set()
+
+            try:
+                # Chờ tối đa CALL_TIMEOUT giây
+                await asyncio.wait_for(discard_event.wait(), timeout=CALL_TIMEOUT)
+                elapsed = asyncio.get_event_loop().time() - call_start
+                logger.info(f"[CALL] {name} — call ended after {elapsed:.0f}s")
+
+                if elapsed < 30:
+                    # Tắt máy sớm → từ chối → dừng retry
+                    logger.info(f"[CALL] {name} — DECLINED (< 30s) → stopping retry")
+                    responded = True
+                else:
+                    # Call kéo dài → timeout tự discard
+                    logger.info(f"[CALL] {name} — TIMEOUT (>= 30s) → will retry")
+                    responded = False
+
+            except asyncio.TimeoutError:
+                # Hết 60s không có sự kiện → hang up thủ công
+                elapsed = asyncio.get_event_loop().time() - call_start
+                logger.info(f"[CALL] {name} — no answer after {elapsed:.0f}s → hanging up → will retry")
+                try:
+                    await client(DiscardCallRequest(
+                        peer=result.phone_call,
+                        duration=0,
+                        reason=PhoneCallDiscardReasonHangup(),
+                        connection_id=0,
+                    ))
+                except Exception:
+                    pass
+                responded = False
+
+            finally:
+                client.remove_event_handler(call_handler)
+
+        except Exception as e:
+            logger.error(f"[CALL] {name} — attempt {attempt} failed: {e}")
+            responded = True  # Lỗi không rõ → dừng
+
+        if responded:
+            logger.info(f"[CALL] {name} — stopping retry")
+            break
+
+        if attempt < MAX_RETRIES:
+            logger.info(f"[CALL] {name} — waiting {RETRY_DELAY}s before retry {attempt + 1}...")
+            await asyncio.sleep(RETRY_DELAY)
+
+    logger.info(f"[CALL] {name} — done")
+
+
+# ============================================================
+# CHECK ĐÚNG NGƯỜI TRỰC ĐÃ ĐỌC CHƯA (read receipt)
+# ============================================================
+async def is_oncall_read(group_entity, msg_id: int, oncall_users: list) -> bool:
+    try:
+        result = await client(GetMessageReadParticipantsRequest(
+            peer=group_entity,
+            msg_id=msg_id,
+        ))
+        read_user_ids   = {r.user_id for r in result}
+        oncall_user_ids = {person["user_id"] for person in oncall_users}
+        logger.info(f"[READ] Message {msg_id} read by: {read_user_ids} | on-call: {oncall_user_ids}")
+
+        overlap = read_user_ids & oncall_user_ids
+        if overlap:
+            logger.info(f"[READ] On-call user(s) {overlap} already read → skipping call")
+            return True
+
+        logger.info(f"[READ] No on-call user has read yet → will call")
+        return False
+
+    except Exception as e:
+        logger.error(f"[READ] Failed to check read status: {e}")
+        return False
+
+
+# ============================================================
+# XỬ LÝ ALERT: CHỜ 120S → CHECK ĐỌC → GỌI NẾU CHƯA ĐỌC
+# ============================================================
+async def handle_alert(alerts: list, group_entity, msg_id: int, oncall_users: list):
+    severities = {a["labels"].get("severity", "") for a in alerts}
+
+    if "critical" not in severities:
+        logger.info("[ALERT] No critical severity — skipping call")
+        return
+
+    logger.info(f"[ALERT] Waiting {WAIT_BEFORE_CALL}s before checking read status...")
+    await asyncio.sleep(WAIT_BEFORE_CALL)
+
+    read = await is_oncall_read(group_entity, msg_id, oncall_users)
+    if read:
+        logger.info("[ALERT] On-call user already read — skipping call")
+        return
+
+    logger.info("[ALERT] On-call user has not read — initiating calls")
+    for oncall in oncall_users:
+        target = oncall["telegram"]
+        try:
+            entity = await client.get_input_entity(target)
+            asyncio.create_task(call_with_retry(entity, oncall["name"]))
+            logger.info(f"[ALERT] Call task created for {oncall['name']}")
+        except Exception as e:
+            logger.error(f"[ALERT] Failed to get entity for {oncall['name']}: {e}")
 
 
 # ============================================================
@@ -103,54 +253,35 @@ async def alertmanager_webhook(request: Request):
 
     oncall_users = get_oncall_users()
     if not oncall_users:
-        logger.warning("No on-call user matched current time slot")
+        logger.warning("[WEBHOOK] No on-call user matched current time slot")
         return {"status": "no_oncall_matched"}
 
-    config       = load_config()
+    config        = load_config()
     group_chat_id = config.get("group_chat_id")
-    message      = build_message(alerts)
-    severities   = {a["labels"].get("severity", "") for a in alerts}
-    alerted      = []
+    message       = build_message(alerts, oncall_users)
+    severities    = {a["labels"].get("severity", "") for a in alerts}
 
     try:
-        # Gửi message vào GROUP
         if group_chat_id:
-            group_entity = await client.get_input_entity(int(group_chat_id))
-            await client.send_message(group_entity, message)
-            logger.info(f"Message sent to group {group_chat_id}")
+            group_entity = await client.get_entity(int(group_chat_id))
+            sent_msg     = await client.send_message(group_entity, message)
+            logger.info(f"[WEBHOOK] Message sent to group (msg_id={sent_msg.id})")
 
-        # Gọi điện cho từng người trực nếu critical
-        if "critical" in severities:
-            for oncall in oncall_users:
-                target = oncall["telegram"]
-                try:
-                    entity   = await client.get_input_entity(target)
-                    g_a_hash = hashlib.sha256(os.urandom(256)).digest()
-                    await client(RequestCallRequest(
-                        user_id=entity,
-                        random_id=random.randint(1, 0x7FFFFFFF),
-                        g_a_hash=g_a_hash,
-                        protocol=PhoneCallProtocol(
-                            udp_p2p=True,
-                            udp_reflector=True,
-                            min_layer=65,
-                            max_layer=92,
-                            library_versions=["3.0.0"],
-                        ),
-                    ))
-                    logger.info(f"Call initiated to {oncall['name']}")
-                    alerted.append(oncall["name"])
-                except Exception as e:
-                    logger.error(f"Failed to call {oncall['name']}: {e}")
+            if "critical" in severities:
+                asyncio.create_task(
+                    handle_alert(alerts, group_entity, sent_msg.id, oncall_users)
+                )
+                logger.info(f"[WEBHOOK] Will call in {WAIT_BEFORE_CALL}s if unread")
 
     except Exception as e:
-        logger.error(f"Failed to send group message: {e}")
+        logger.error(f"[WEBHOOK] Error: {e}")
         return {"status": "error", "detail": str(e)}
 
     return {
         "status": "ok",
         "group_notified": bool(group_chat_id),
-        "called": alerted,
+        "will_call_in": f"{WAIT_BEFORE_CALL}s if unread",
+        "oncall": [u["name"] for u in oncall_users],
         "alerts_count": len(alerts),
     }
 

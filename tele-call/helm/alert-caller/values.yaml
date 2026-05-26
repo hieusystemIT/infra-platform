@@ -27,25 +27,28 @@ resources:
     memory: 256Mi
 
 oncall:
-  group_chat_id: "-5155661537"
+  group_chat_id: "-1003940071694"
   schedule:
-    - name: "coach Quynh"
-      telegram: "@xuanquynhqbf"
-      days: [7, 8]
-      hours:
-        - start: "08:30"
-          end: "23:30"
-        
     - name: "hieudd"
       telegram: "@SeanNG21"
+      user_id: 2014724625
       days: [2, 3, 4, 5, 6]
       hours:
         - start: "08:30"
           end: "23:30"
 
-    - name: "tuan"
-      telegram: "@tuanphi2408"
-      days: [2, 3, 4, 5, 6]
-      hours:
-        - start: "08:30"
-          end: "23:30"
+    # - name: "coach Quynh"
+    #   telegram: "@xuanquynhqbf"
+    #   user_id: 765199915
+    #   days: [7, 8]
+    #   hours:
+    #     - start: "08:30"
+    #       end: "23:30"
+
+    # - name: "tuan"
+    #   telegram: "@tuanphi2408"
+    #   user_id: 6495513678
+    #   days: [2, 3, 4, 5, 6]
+    #   hours:
+    #     - start: "08:30"
+    #       end: "23:30"

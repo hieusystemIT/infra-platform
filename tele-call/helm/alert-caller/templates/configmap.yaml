@@ -10,6 +10,7 @@ data:
     {{- range .Values.oncall.schedule }}
       - name: {{ .name | quote }}
         telegram: {{ .telegram | quote }}
+        user_id: {{ .user_id }}
         days: {{ .days | toJson }}
         hours:
         {{- range .hours }}
