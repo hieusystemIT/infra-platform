@@ -82,18 +82,37 @@ def get_oncall_users() -> list:
 # ============================================================
 def build_message(alerts: list, oncall_users: list) -> str:
     lines = ["DEVOPS ALERT\n"]
+    tz = pytz.timezone("Asia/Ho_Chi_Minh")
+
     for alert in alerts:
         name     = alert["labels"].get("alertname", "Unknown")
         severity = alert["labels"].get("severity", "unknown").upper()
-        ns       = alert["labels"].get("namespace", "-")
-        pod      = alert["labels"].get("pod", "-")
-        summary  = alert["annotations"].get("summary", "No summary")
-        lines.append(
-            f"[{severity}] {name}\n"
-            f"Namespace: {ns}\n"
-            f"Pod: {pod}\n"
-            f"{summary}"
-        )
+        ns       = alert["labels"].get("namespace")
+        pod      = alert["labels"].get("pod")
+        node     = alert["labels"].get("node")
+
+        # Convert UTC sang giờ VN
+        starts_raw = alert.get("startsAt", "")
+        starts = ""
+        if starts_raw and starts_raw != "0001-01-01T00:00:00Z":
+            try:
+                dt     = datetime.strptime(starts_raw[:19], "%Y-%m-%dT%H:%M:%S")
+                dt     = pytz.utc.localize(dt).astimezone(tz)
+                starts = dt.strftime("%d/%m/%Y %H:%M:%S")
+            except Exception:
+                starts = ""
+
+        detail = f"[{severity}] {name}\n"
+        if ns:
+            detail += f"Namespace: {ns}\n"
+        if pod:
+            detail += f"Pod: {pod}\n"
+        if node:
+            detail += f"Node: {node}\n"
+        if starts:
+            detail += f"Time: {starts}"
+
+        lines.append(detail)
 
     mentions = " ".join([f"@{p['telegram'].lstrip('@')}" for p in oncall_users])
     lines.append(f"\n{mentions} vui lòng xem alert này!")
@@ -103,10 +122,6 @@ def build_message(alerts: list, oncall_users: list) -> str:
 
 # ============================================================
 # GỌI ĐIỆN VỚI RETRY
-# Logic:
-#   - Tắt máy sớm (< 30s) → DECLINED → dừng retry
-#   - Timeout (>= 60s)    → TIMEOUT  → gọi lại sau 5s
-#   - Tối đa MAX_RETRIES lần
 # ============================================================
 async def call_with_retry(entity, name: str):
     for attempt in range(1, MAX_RETRIES + 1):
@@ -131,29 +146,24 @@ async def call_with_retry(entity, name: str):
             call_start    = asyncio.get_event_loop().time()
             discard_event = asyncio.Event()
 
-            # Lắng nghe Telegram báo call bị discard
             @client.on(events.Raw(types.UpdatePhoneCall))
             async def call_handler(event):
                 if hasattr(event.phone_call, 'reason'):
                     discard_event.set()
 
             try:
-                # Chờ tối đa CALL_TIMEOUT giây
                 await asyncio.wait_for(discard_event.wait(), timeout=CALL_TIMEOUT)
                 elapsed = asyncio.get_event_loop().time() - call_start
                 logger.info(f"[CALL] {name} — call ended after {elapsed:.0f}s")
 
                 if elapsed < 30:
-                    # Tắt máy sớm → từ chối → dừng retry
                     logger.info(f"[CALL] {name} — DECLINED (< 30s) → stopping retry")
                     responded = True
                 else:
-                    # Call kéo dài → timeout tự discard
                     logger.info(f"[CALL] {name} — TIMEOUT (>= 30s) → will retry")
                     responded = False
 
             except asyncio.TimeoutError:
-                # Hết 60s không có sự kiện → hang up thủ công
                 elapsed = asyncio.get_event_loop().time() - call_start
                 logger.info(f"[CALL] {name} — no answer after {elapsed:.0f}s → hanging up → will retry")
                 try:
@@ -172,7 +182,7 @@ async def call_with_retry(entity, name: str):
 
         except Exception as e:
             logger.error(f"[CALL] {name} — attempt {attempt} failed: {e}")
-            responded = True  # Lỗi không rõ → dừng
+            responded = True
 
         if responded:
             logger.info(f"[CALL] {name} — stopping retry")
@@ -198,7 +208,6 @@ async def is_oncall_read(group_entity, msg_id: int, oncall_users: list) -> bool:
         oncall_user_ids = {person["user_id"] for person in oncall_users}
         logger.info(f"[READ] Message {msg_id} read by: {read_user_ids} | on-call: {oncall_user_ids}")
 
-        # Chỉ cần 1 người trực đọc là không gọi
         overlap = read_user_ids & oncall_user_ids
         if overlap:
             logger.info(f"[READ] On-call user(s) {overlap} already read → skipping call")
@@ -214,23 +223,8 @@ async def is_oncall_read(group_entity, msg_id: int, oncall_users: list) -> bool:
 
 # ============================================================
 # XỬ LÝ ALERT: CHỜ 120S → CHECK ĐỌC → GỌI NẾU CHƯA ĐỌC
-# Chỉ gọi nếu alertname nằm trong danh sách call_on_alerts
 # ============================================================
 async def handle_alert(alerts: list, group_entity, msg_id: int, oncall_users: list):
-    config         = load_config()
-    call_on_alerts = config.get("call_on_alerts", [])
-
-    # Check xem có alert nào cần gọi điện không
-    alerts_need_call = [
-        a for a in alerts
-        if a["labels"].get("alertname") in call_on_alerts
-    ]
-
-    if not alerts_need_call:
-        logger.info(f"[ALERT] No alerts in call_on_alerts list — message only, skipping call")
-        return
-
-    logger.info(f"[ALERT] Alerts need call: {[a['labels'].get('alertname') for a in alerts_need_call]}")
     logger.info(f"[ALERT] Waiting {WAIT_BEFORE_CALL}s before checking read status...")
     await asyncio.sleep(WAIT_BEFORE_CALL)
 
@@ -256,26 +250,34 @@ async def handle_alert(alerts: list, group_entity, msg_id: int, oncall_users: li
 @app.post("/webhook")
 async def alertmanager_webhook(request: Request):
     body   = await request.json()
+    logger.info(f"[WEBHOOK] Raw payload: {body}")
+
     alerts = [a for a in body.get("alerts", []) if a["status"] == "firing"]
 
     if not alerts:
         return {"status": "no_firing_alerts"}
+
+    config         = load_config()
+    call_on_alerts = config.get("call_on_alerts", [])
+
+    # Chỉ xử lý alert có trong call_on_alerts — bỏ qua hoàn toàn nếu không có
+    alerts_to_process = [
+        a for a in alerts
+        if a["labels"].get("alertname") in call_on_alerts
+    ]
+
+    if not alerts_to_process:
+        logger.info(f"[WEBHOOK] No alerts in call_on_alerts — ignoring")
+        return {"status": "ignored"}
 
     oncall_users = get_oncall_users()
     if not oncall_users:
         logger.warning("[WEBHOOK] No on-call user matched current time slot")
         return {"status": "no_oncall_matched"}
 
-    config        = load_config()
     group_chat_id = config.get("group_chat_id")
-    call_on_alerts = config.get("call_on_alerts", [])
-    message       = build_message(alerts, oncall_users)
-
-    # Check alert nào cần gọi
-    alerts_need_call = [
-        a["labels"].get("alertname") for a in alerts
-        if a["labels"].get("alertname") in call_on_alerts
-    ]
+    message       = build_message(alerts_to_process, oncall_users)
+    alert_names   = [a["labels"].get("alertname") for a in alerts_to_process]
 
     try:
         if group_chat_id:
@@ -283,13 +285,10 @@ async def alertmanager_webhook(request: Request):
             sent_msg     = await client.send_message(group_entity, message)
             logger.info(f"[WEBHOOK] Message sent to group (msg_id={sent_msg.id})")
 
-            if alerts_need_call:
-                asyncio.create_task(
-                    handle_alert(alerts, group_entity, sent_msg.id, oncall_users)
-                )
-                logger.info(f"[WEBHOOK] Will call in {WAIT_BEFORE_CALL}s if unread — alerts: {alerts_need_call}")
-            else:
-                logger.info(f"[WEBHOOK] Message only — no alerts in call_on_alerts list")
+            asyncio.create_task(
+                handle_alert(alerts_to_process, group_entity, sent_msg.id, oncall_users)
+            )
+            logger.info(f"[WEBHOOK] Will call in {WAIT_BEFORE_CALL}s if unread — alerts: {alert_names}")
 
     except Exception as e:
         logger.error(f"[WEBHOOK] Error: {e}")
@@ -298,10 +297,9 @@ async def alertmanager_webhook(request: Request):
     return {
         "status": "ok",
         "group_notified": bool(group_chat_id),
-        "will_call": bool(alerts_need_call),
-        "call_alerts": alerts_need_call,
+        "will_call_in": f"{WAIT_BEFORE_CALL}s if unread",
         "oncall": [u["name"] for u in oncall_users],
-        "alerts_count": len(alerts),
+        "alerts_processed": alert_names,
     }
 
 

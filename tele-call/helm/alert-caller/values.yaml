@@ -30,9 +30,10 @@ oncall:
   group_chat_id: "-1003940071694"
   # List alert name quyết định calling khi có alert đó xảy ra
   call_on_alerts:
-    - Pod restarted
-    - Container in pod restarted
-    - Pod has no ready containers
+    #- Pod restarted
+    #- Container in pod restarted
+    #- Pod has no ready containers
+    #- etcd has no leader
   schedule:
     - name: "hieudd"
       telegram: "@SeanNG21"
