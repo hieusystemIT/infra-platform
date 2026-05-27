@@ -128,7 +128,7 @@ async def call_with_retry(entity, name: str):
                 ),
             ))
             logger.info(f"[CALL] {name} — ringing...")
-            call_start   = asyncio.get_event_loop().time()
+            call_start    = asyncio.get_event_loop().time()
             discard_event = asyncio.Event()
 
             # Lắng nghe Telegram báo call bị discard
@@ -198,6 +198,7 @@ async def is_oncall_read(group_entity, msg_id: int, oncall_users: list) -> bool:
         oncall_user_ids = {person["user_id"] for person in oncall_users}
         logger.info(f"[READ] Message {msg_id} read by: {read_user_ids} | on-call: {oncall_user_ids}")
 
+        # Chỉ cần 1 người trực đọc là không gọi
         overlap = read_user_ids & oncall_user_ids
         if overlap:
             logger.info(f"[READ] On-call user(s) {overlap} already read → skipping call")
@@ -213,14 +214,23 @@ async def is_oncall_read(group_entity, msg_id: int, oncall_users: list) -> bool:
 
 # ============================================================
 # XỬ LÝ ALERT: CHỜ 120S → CHECK ĐỌC → GỌI NẾU CHƯA ĐỌC
+# Chỉ gọi nếu alertname nằm trong danh sách call_on_alerts
 # ============================================================
 async def handle_alert(alerts: list, group_entity, msg_id: int, oncall_users: list):
-    severities = {a["labels"].get("severity", "") for a in alerts}
+    config         = load_config()
+    call_on_alerts = config.get("call_on_alerts", [])
 
-    if "critical" not in severities:
-        logger.info("[ALERT] No critical severity — skipping call")
+    # Check xem có alert nào cần gọi điện không
+    alerts_need_call = [
+        a for a in alerts
+        if a["labels"].get("alertname") in call_on_alerts
+    ]
+
+    if not alerts_need_call:
+        logger.info(f"[ALERT] No alerts in call_on_alerts list — message only, skipping call")
         return
 
+    logger.info(f"[ALERT] Alerts need call: {[a['labels'].get('alertname') for a in alerts_need_call]}")
     logger.info(f"[ALERT] Waiting {WAIT_BEFORE_CALL}s before checking read status...")
     await asyncio.sleep(WAIT_BEFORE_CALL)
 
@@ -258,8 +268,14 @@ async def alertmanager_webhook(request: Request):
 
     config        = load_config()
     group_chat_id = config.get("group_chat_id")
+    call_on_alerts = config.get("call_on_alerts", [])
     message       = build_message(alerts, oncall_users)
-    severities    = {a["labels"].get("severity", "") for a in alerts}
+
+    # Check alert nào cần gọi
+    alerts_need_call = [
+        a["labels"].get("alertname") for a in alerts
+        if a["labels"].get("alertname") in call_on_alerts
+    ]
 
     try:
         if group_chat_id:
@@ -267,11 +283,13 @@ async def alertmanager_webhook(request: Request):
             sent_msg     = await client.send_message(group_entity, message)
             logger.info(f"[WEBHOOK] Message sent to group (msg_id={sent_msg.id})")
 
-            if "critical" in severities:
+            if alerts_need_call:
                 asyncio.create_task(
                     handle_alert(alerts, group_entity, sent_msg.id, oncall_users)
                 )
-                logger.info(f"[WEBHOOK] Will call in {WAIT_BEFORE_CALL}s if unread")
+                logger.info(f"[WEBHOOK] Will call in {WAIT_BEFORE_CALL}s if unread — alerts: {alerts_need_call}")
+            else:
+                logger.info(f"[WEBHOOK] Message only — no alerts in call_on_alerts list")
 
     except Exception as e:
         logger.error(f"[WEBHOOK] Error: {e}")
@@ -280,7 +298,8 @@ async def alertmanager_webhook(request: Request):
     return {
         "status": "ok",
         "group_notified": bool(group_chat_id),
-        "will_call_in": f"{WAIT_BEFORE_CALL}s if unread",
+        "will_call": bool(alerts_need_call),
+        "call_alerts": alerts_need_call,
         "oncall": [u["name"] for u in oncall_users],
         "alerts_count": len(alerts),
     }

@@ -6,6 +6,10 @@ metadata:
 data:
   oncall.yaml: |
     group_chat_id: {{ .Values.oncall.group_chat_id | quote }}
+    call_on_alerts:
+    {{- range .Values.oncall.call_on_alerts }}
+      - {{ . }}
+    {{- end }}
     schedule:
     {{- range .Values.oncall.schedule }}
       - name: {{ .name | quote }}

@@ -28,6 +28,13 @@ resources:
 
 oncall:
   group_chat_id: "-1003940071694"
+  # List alert name quyết định calling khi có alert đó xảy ra
+  call_on_alerts:
+    - KubeProxyDown
+    - NodeNotReady
+    - NodeDown
+    - PodCrashLoopBackOff
+    - KubeletDown
   schedule:
     - name: "hieudd"
       telegram: "@SeanNG21"
