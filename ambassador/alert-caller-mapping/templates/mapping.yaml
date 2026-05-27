@@ -1,0 +1,11 @@
+apiVersion: getambassador.io/v3alpha1
+kind: Mapping
+metadata:
+  name: {{ .Release.Name }}-mapping
+  namespace: {{ .Release.Namespace }}
+spec:
+  hostname: {{ .Values.hostname | quote }}
+  prefix: {{ .Values.prefix }}
+  service: {{ .Values.service }}
+  timeout_ms: {{ .Values.timeout_ms }}
+  idle_timeout_ms: {{ .Values.idle_timeout_ms }}

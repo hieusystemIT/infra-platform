@@ -1,0 +1,5 @@
+apiVersion: v2
+name: alert-caller-mapping
+description: Ambassador mapping for alert-caller webhook
+type: application
+version: 0.1.0

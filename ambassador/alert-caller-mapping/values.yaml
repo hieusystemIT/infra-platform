@@ -1,0 +1,6 @@
+hostname: wh.bambi.io.vn
+service: alert-caller-svc.alert-caller:8000
+prefix: /
+timeout_ms: 30000
+idle_timeout_ms: 30000
+insecureAction: Route
