@@ -28,12 +28,31 @@ resources:
 
 oncall:
   group_chat_id: "-1003940071694"
-  # List alert name quyết định calling khi có alert đó xảy ra
-  call_on_alerts:
-    #- Pod restarted
-    #- Container in pod restarted
-    #- Pod has no ready containers
-    #- etcd has no leader
+
+  # Chỉ xử lý alert có severity trong list này
+  call_on_severities:
+    - disaster
+
+  # K8s alert: chỉ gọi khi namespace match pattern này
+  # Infrastructure alert (không có namespace): gọi luôn
+  call_on_namespace_patterns:
+    - ".*-production"
+
+  # Chỉ gọi khi alert đến từ các receiver này
+  call_on_receivers:
+    - postgresql-telegram
+    - k8s-pod-telegram
+    - k8s-container-telegram
+    - infra-telegram
+    - etcd-telegram
+    - redis-telegram
+    - cassandra-telegram
+    - rabbitmq-telegram
+    # Không include:
+    # - telegram-ambassador-*
+    # - telegram-application-logs
+    # - telegram-nginx-*
+
   schedule:
     - name: "hieudd"
       telegram: "@SeanNG21"

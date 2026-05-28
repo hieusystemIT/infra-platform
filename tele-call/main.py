@@ -1,4 +1,5 @@
 import os
+import re
 import yaml
 import random
 import hashlib
@@ -78,18 +79,50 @@ def get_oncall_users() -> list:
 
 
 # ============================================================
+# CHECK ALERT CÓ CẦN XỬ LÝ KHÔNG
+# severity=disaster + namespace match ".*-production" → xử lý
+# severity=disaster + không có namespace (PostgreSQL, VM) → xử lý
+# còn lại → bỏ qua
+# ============================================================
+def should_process(alert: dict, config: dict) -> bool:
+    call_on_severities         = config.get("call_on_severities", [])
+    call_on_namespace_patterns = config.get("call_on_namespace_patterns", [])
+
+    # Check severity
+    severity = alert["labels"].get("severity", "")
+    if severity not in call_on_severities:
+        return False
+
+    # Check namespace
+    namespace = alert["labels"].get("namespace")
+    if namespace:
+        # K8s alert — check namespace match pattern
+        return any(re.match(p, namespace) for p in call_on_namespace_patterns)
+    else:
+        # Infrastructure alert (PostgreSQL, VM...) — gọi luôn
+        return True
+
+
+# ============================================================
 # TẠO NỘI DUNG TIN NHẮN CÓ TAG NGƯỜI TRỰC
+# Hiển thị tất cả labels quan trọng có giá trị
 # ============================================================
 def build_message(alerts: list, oncall_users: list) -> str:
     lines = ["DEVOPS ALERT\n"]
     tz = pytz.timezone("Asia/Ho_Chi_Minh")
 
+    # Labels quan trọng cần hiển thị theo thứ tự
+    important_labels = [
+        "namespace", "pod", "node",
+        "instance_name", "instance", "nodename", "ip",
+        "service", "cluster", "datacenter",
+        "rabbitmq_node", "container",
+    ]
+
     for alert in alerts:
         name     = alert["labels"].get("alertname", "Unknown")
         severity = alert["labels"].get("severity", "unknown").upper()
-        ns       = alert["labels"].get("namespace")
-        pod      = alert["labels"].get("pod")
-        node     = alert["labels"].get("node")
+        summary  = alert["annotations"].get("summary") or alert["annotations"].get("description")
 
         # Convert UTC sang giờ VN
         starts_raw = alert.get("startsAt", "")
@@ -103,12 +136,16 @@ def build_message(alerts: list, oncall_users: list) -> str:
                 starts = ""
 
         detail = f"[{severity}] {name}\n"
-        if ns:
-            detail += f"Namespace: {ns}\n"
-        if pod:
-            detail += f"Pod: {pod}\n"
-        if node:
-            detail += f"Node: {node}\n"
+
+        # Hiển thị labels có giá trị
+        for label in important_labels:
+            val = alert["labels"].get(label)
+            if val:
+                label_display = label.replace("_", " ").title()
+                detail += f"{label_display}: {val}\n"
+
+        if summary:
+            detail += f"Summary: {summary}\n"
         if starts:
             detail += f"Time: {starts}"
 
@@ -122,6 +159,9 @@ def build_message(alerts: list, oncall_users: list) -> str:
 
 # ============================================================
 # GỌI ĐIỆN VỚI RETRY
+# - Tắt máy sớm (< 30s) → DECLINED → dừng retry
+# - Timeout (>= 60s)    → TIMEOUT  → gọi lại sau 5s
+# - Tối đa MAX_RETRIES lần
 # ============================================================
 async def call_with_retry(entity, name: str):
     for attempt in range(1, MAX_RETRIES + 1):
@@ -224,7 +264,7 @@ async def is_oncall_read(group_entity, msg_id: int, oncall_users: list) -> bool:
 # ============================================================
 # XỬ LÝ ALERT: CHỜ 120S → CHECK ĐỌC → GỌI NẾU CHƯA ĐỌC
 # ============================================================
-async def handle_alert(alerts: list, group_entity, msg_id: int, oncall_users: list):
+async def handle_alert(group_entity, msg_id: int, oncall_users: list):
     logger.info(f"[ALERT] Waiting {WAIT_BEFORE_CALL}s before checking read status...")
     await asyncio.sleep(WAIT_BEFORE_CALL)
 
@@ -257,17 +297,13 @@ async def alertmanager_webhook(request: Request):
     if not alerts:
         return {"status": "no_firing_alerts"}
 
-    config         = load_config()
-    call_on_alerts = config.get("call_on_alerts", [])
+    config = load_config()
 
-    # Chỉ xử lý alert có trong call_on_alerts — bỏ qua hoàn toàn nếu không có
-    alerts_to_process = [
-        a for a in alerts
-        if a["labels"].get("alertname") in call_on_alerts
-    ]
+    # Chỉ xử lý alert pass filter
+    alerts_to_process = [a for a in alerts if should_process(a, config)]
 
     if not alerts_to_process:
-        logger.info(f"[WEBHOOK] No alerts in call_on_alerts — ignoring")
+        logger.info("[WEBHOOK] No alerts passed filter — ignoring")
         return {"status": "ignored"}
 
     oncall_users = get_oncall_users()
@@ -286,7 +322,7 @@ async def alertmanager_webhook(request: Request):
             logger.info(f"[WEBHOOK] Message sent to group (msg_id={sent_msg.id})")
 
             asyncio.create_task(
-                handle_alert(alerts_to_process, group_entity, sent_msg.id, oncall_users)
+                handle_alert(group_entity, sent_msg.id, oncall_users)
             )
             logger.info(f"[WEBHOOK] Will call in {WAIT_BEFORE_CALL}s if unread — alerts: {alert_names}")
 
