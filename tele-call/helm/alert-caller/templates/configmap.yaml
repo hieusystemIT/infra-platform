@@ -14,6 +14,10 @@ data:
     {{- range .Values.oncall.call_on_namespace_patterns }}
       - {{ . | quote }}
     {{- end }}
+    call_on_receivers:
+    {{- range .Values.oncall.call_on_receivers }}
+      - {{ . | quote }}
+    {{- end }}
     schedule:
     {{- range .Values.oncall.schedule }}
       - name: {{ .name | quote }}
