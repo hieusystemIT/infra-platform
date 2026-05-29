@@ -1,13 +1,20 @@
 schedule:
-  - name: "test call 1"
+  - name: "coach Quynh"
     telegram: "@xuanquynhqbf"
     days: [7, 8]
     hours:
       - start: "08:30"
         end: "23:30"
   
-  - name: "test call 2"
-    telegram: "@SeanNG21"
+  - name: "DevOps Tuanpv"
+    telegram: "@tuanphi2408"
+    days: [2, 3, 4, 5, 6]
+    hours:
+      - start: "08:30"
+        end: "23:30"
+
+  - name: "DevOps Hieudd"
+    telegram: "@duchieu246"
     days: [2, 3, 4, 5, 6]
     hours:
       - start: "08:30"

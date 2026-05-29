@@ -53,11 +53,12 @@ oncall:
     - strongswan-telegram
     - redis-telegram
     - gatus-telegram
+    - prod-cassandra-telegram
 
   schedule:
-    - name: "hieudd"
-      telegram: "@SeanNG21"
-      user_id: 2014724625
+    - name: "DevOps Hieudd"
+      telegram: "@duchieu246"
+      user_id: 1640658111
       days: [2, 3, 4, 5, 6]
       hours:
         - start: "08:30"
@@ -71,7 +72,7 @@ oncall:
          - start: "08:30"
            end: "18:30"
  
-    - name: "tuan"
+    - name: "DevOps Tuanpv"
       telegram: "@tuanphi2408"
       user_id: 6495513678
       days: [2, 3, 4, 5, 6]

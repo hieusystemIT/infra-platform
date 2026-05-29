@@ -1,12 +1,12 @@
 from telethon.sync import TelegramClient
 from telethon.sessions import StringSession
 
-API_ID   = 30416016
-API_HASH = '12b42faaeb9fd08fc16910ec442fa8eb'
-SESSION  = '1BVtsOJkBu6vov0IEXOzQD5Js4KM8U5PK8cZqkfXLykWsuYAFrGrjuBsbGPgvnhdRlGAKOJK5r_Z_8FZpY4wMFc2FD_8yjhU4v6aLwwEpNdtadhGm0raa3DeAvc_2P9VKaOizm02U6JBo_qBER1z8uXH34DUOeckUVMwQejL4VRWyqrYaoaWZra8PVLb64_HMlL8kXXXBeipvUo1oCTZYGb2TzvOBTm_GogjCohq7lMozkdeb2cK101PdvUaxFpzT2taZoGLWwBa-Pr45wnTacDFgGYecX60EZ2x_nLOi2GjrVr_ju_JUjd6K6HZFBAx7WwsBmUp4V06VcPTor1NjdiG6pP7UL2Y='
+API_ID   = 31705467
+API_HASH = '18a57dad4333404a859150f52f2f5190'
+SESSION  = '1BVtsOL0Bu13Fds8qChOH9SSCU479_vCDEfUs-RAP7LD3CiXI0uMNQxPRstvKjwexMQJ4ck_scrskBTGwJxg5HfriWbcuMG6ihh1E8-Q8G5qmuTTM7ZjOtxU99jJ-OrB5E9kvUWM6kTFrSRx_M_He3WDzJ3i1WravBZ1siDOsZLec0by_CKr_YDLUGxV5W0fqI-BWEqANNvDZlrPPPwgXhQ7gvK3mxpbUKrk7ZWY2DEf4NDkqefsZ_3MvZYyJ-Kist0_GtoWKXUMjPfzqsjMOsVcaywQBUZhVNeBZYU3Pr_WxC42hXePr02sRA0UsTXjWuIX5y5Nd6kx7Rrd7Y6IPpVCZGI7Zl_U='
 
 USERS = [
-    "@SeanNG21",
+    "@duchieu246",
     "@xuanquynhqbf",
     "@tuanphi2408",
     # add new usernames here
