@@ -188,10 +188,13 @@ async def call_with_retry(entity, name: str):
             call_start    = asyncio.get_event_loop().time()
             discard_event = asyncio.Event()
 
-            @client.on(events.Raw(types.UpdatePhoneCall))
+            # FIX: dùng add_event_handler thay vì decorator
+            # để đảm bảo cleanup đúng cách trong finally
             async def call_handler(event):
                 if hasattr(event.phone_call, 'reason'):
                     discard_event.set()
+
+            client.add_event_handler(call_handler, events.Raw(types.UpdatePhoneCall))
 
             try:
                 await asyncio.wait_for(discard_event.wait(), timeout=CALL_TIMEOUT)
