@@ -29,38 +29,65 @@ resources:
 oncall:
   group_chat_id: "-1003940071694"
 
-  # Chỉ xử lý alert có severity trong list này
   call_on_severities:
     - disaster
 
-  # K8s alert: chỉ gọi khi namespace match pattern này
-  # Infrastructure alert (không có namespace): gọi luôn
   call_on_namespace_patterns:
     - ".*-production"
 
-  # Chỉ gọi khi alert đến từ các receiver này
   call_on_receivers:
+    - telegram-nginx-upstream-logs
+    - nginx-telegram
     - postgresql-telegram
-    - k8s-pod-telegram
-    - k8s-container-telegram
-    - infra-telegram
+    - telegram-ambassador-ratelimit
+    - telegram-ambassador-request
+    - telegram-ambassador-response-code
+    - telegram-ambassador-sql-injection
+    - telegram-application-logs
+    - telegram-nginx-logs
+    - telegram-nginx-upstream-logs-critical
+    - telegram-postgresql-cpu
+    - telegram-postgresql-storage
+    - dr-vm-disk-telegram
+    - dr-vm-telegram
     - etcd-telegram
-    - redis-telegram
-    - cassandra-telegram
+    - infra-telegram
+    - infra-telegram-critical
+    - platform-k8s-node-telegram
+    - platform-k8s-node-telegram-critical
+    - platform-telegram
+    - postgresql-dr-telegram
+    - prod-cassandra-telegram
+    - prod-k8s-app-container-telegram
+    - prod-k8s-app-container-telegram-critical
+    - prod-k8s-app-pod-telegram
+    - prod-k8s-app-pod-telegram-critical
+    - prod-k8s-app-telegram
+    - prod-k8s-cert-monitor-telegram
+    - prod-k8s-plf-container-telegram
+    - prod-k8s-plf-container-telegram-critical
+    - prod-k8s-plf-pod-telegram
+    - prod-k8s-plf-pod-telegram-critical
+    - prod-k8s-pvc-telegram
+    - prod-redis-telegram
+    - prod-temporal-telegram
     - rabbitmq-telegram
-    # Không include:
-    # - telegram-ambassador-*
-    # - telegram-application-logs
-    # - telegram-nginx-*
+    - ratelimit-hook
+    - strongswan-telegram
+    - vm-disk-stg-telegram
+    - vm-disk-telegram
+    - vm-reboot-telegram-dc-prod
+    - vm-reboot-telegram-dr
+    - vm-telegram
 
   schedule:
-    - name: "hieudd"
-      telegram: "@SeanNG21"
-      user_id: 2014724625
+    - name: "DevOps Hieudd"
+      telegram: "@duchieu246"
+      user_id: 1640658111
       days: [2, 3, 4, 5, 6]
       hours:
         - start: "08:30"
-          end: "23:30"
+          end: "18:30"
 
     - name: "coach Quynh"
       telegram: "@xuanquynhqbf"
@@ -68,12 +95,12 @@ oncall:
       days: [2, 3, 4, 5, 6]
       hours:
         - start: "08:30"
-          end: "23:30"
+          end: "18:30"
 
-    # - name: "tuan"
-    #   telegram: "@tuanphi2408"
-    #   user_id: 6495513678
-    #   days: [2, 3, 4, 5, 6]
-    #   hours:
-    #     - start: "08:30"
-    #       end: "23:30"
+    - name: "DevOps Tuanpv"
+      telegram: "@tuanphi2408"
+      user_id: 6495513678
+      days: [2, 3, 4, 5, 6]
+      hours:
+        - start: "08:30"
+          end: "18:30"
