@@ -1,0 +1,111 @@
+replicaCount: 1
+
+image:
+  repository: hieusystemit/alert-caller
+  tag: "v2"
+  pullPolicy: Always
+
+namespace: alert-caller
+
+env:
+  timezone: "Asia/Ho_Chi_Minh"
+
+telegram:
+  credentialsSecret: telegram-credentials
+  sessionSecret: telegram-session
+  apiId: "31705467"
+  apiHash: "18a57dad4333404a859150f52f2f5190"
+  sessionString: "1BVtsOGUBuzRcK1dKdfYXDkCo-HZwGlE3F4AG46ssjJ57zF7H5EXyh4_lnGAyB_uWsVpm3PIWJgMWWjYagAwG0L_gp8O39HjIJ_z1OhVpof49BaPdbPn4ObdsC33ZMsFMJhaaA0zcJgzYzw0gxoSom67OSUn1ytoPjLpKiPZ-xqsjtdrUsNjav3TuyoshDRT8pmn59GwEfqHdp7kkUKIMtMYDFgzBvzhW8D48fEkYozJNeZifbN8OSVzHiTWVTNC2H1LQ5GtIZSAfWwfrkYcQ0LVf9NrgxFZeunUsZ2ktEP-W461M318bd48GYWx4uCA7s2ueHxCT-rTtSEYAxjreFdblD0OreR4="
+
+webhookToken: "4fc809e6f4d0dd80e721d5f9bdb3936a75fb135576d60fff0074c48dd46059f9"
+
+service:
+  type: ClusterIP
+  port: 8000
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+oncall:
+  group_chat_id: "-1003940071694"
+
+  call_on_severities:
+    - disaster
+
+  call_on_namespace_patterns:
+    - ".*-production"
+
+  call_on_receivers:
+    - telegram-nginx-upstream-logs
+    - nginx-telegram
+    - postgresql-telegram
+    - telegram-ambassador-ratelimit
+    - telegram-ambassador-request
+    - telegram-ambassador-response-code
+    - telegram-ambassador-sql-injection
+    - telegram-application-logs
+    - telegram-nginx-logs
+    - telegram-nginx-upstream-logs-critical
+    - telegram-postgresql-cpu
+    - telegram-postgresql-storage
+    - dr-vm-disk-telegram
+    - dr-vm-telegram
+    - etcd-telegram
+    - infra-telegram
+    - infra-telegram-critical
+    - platform-k8s-node-telegram
+    - platform-k8s-node-telegram-critical
+    - platform-telegram
+    - postgresql-dr-telegram
+    - prod-cassandra-telegram
+    - prod-k8s-app-container-telegram
+    - prod-k8s-app-container-telegram-critical
+    - prod-k8s-app-pod-telegram
+    - prod-k8s-app-pod-telegram-critical
+    - prod-k8s-app-telegram
+    - prod-k8s-cert-monitor-telegram
+    - prod-k8s-plf-container-telegram
+    - prod-k8s-plf-container-telegram-critical
+    - prod-k8s-plf-pod-telegram
+    - prod-k8s-plf-pod-telegram-critical
+    - prod-k8s-pvc-telegram
+    - prod-redis-telegram
+    - prod-temporal-telegram
+    - rabbitmq-telegram
+    - ratelimit-hook
+    - strongswan-telegram
+    - vm-disk-stg-telegram
+    - vm-disk-telegram
+    - vm-reboot-telegram-dc-prod
+    - vm-reboot-telegram-dr
+    - vm-telegram
+
+  schedule:
+    - name: "DevOps Hieudd"
+      telegram: "@duchieu246"
+      user_id: 1640658111
+      days: [2, 3, 4, 5, 6]
+      hours:
+        - start: "00:00"
+          end: "23:59"
+
+    - name: "coach Quynh"
+      telegram: "@xuanquynhqbf"
+      user_id: 765199915
+      days: [2, 3, 4, 5, 6]
+      hours:
+        - start: "00:00"
+          end: "23:59"
+
+    - name: "DevOps Tuanpv"
+      telegram: "@tuanphi2408"
+      user_id: 6495513678
+      days: [2, 3, 4, 5, 6]
+      hours:
+        - start: "00:00"
+          end: "23:59"
