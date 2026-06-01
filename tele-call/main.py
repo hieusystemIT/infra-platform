@@ -359,6 +359,9 @@ async def health():
 @app.on_event("startup")
 async def startup():
     await client.connect()
+    logger.info("Loading dialogs...")
+    await client.get_dialogs()
+    logger.info("Dialogs loaded")
     logger.info("Telethon client connected")
 
 
