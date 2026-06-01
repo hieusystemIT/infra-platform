@@ -6,7 +6,7 @@ import hashlib
 import logging
 import asyncio
 from datetime import datetime
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from telethon.tl import types
@@ -34,6 +34,7 @@ WAIT_BEFORE_CALL = int(os.environ.get("WAIT_BEFORE_CALL", "120"))
 CALL_TIMEOUT     = int(os.environ.get("CALL_TIMEOUT", "60"))
 MAX_RETRIES      = int(os.environ.get("MAX_RETRIES", "3"))
 RETRY_DELAY      = int(os.environ.get("RETRY_DELAY", "5"))
+WEBHOOK_TOKEN    = os.environ.get("WEBHOOK_TOKEN", "")
 
 SESSION_STRING = os.environ.get("SESSION_STRING", "")
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
@@ -79,6 +80,22 @@ def get_oncall_users() -> list:
 
 
 # ============================================================
+# VERIFY BEARER TOKEN
+# ============================================================
+def verify_token(request: Request):
+    if not WEBHOOK_TOKEN:
+        return
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        logger.warning("[AUTH] Missing or invalid Authorization header")
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    token = auth_header.removeprefix("Bearer ").strip()
+    if token != WEBHOOK_TOKEN:
+        logger.warning("[AUTH] Invalid token")
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+# ============================================================
 # CHECK ALERT CÓ CẦN XỬ LÝ KHÔNG
 # Cả 3 điều kiện phải thỏa mãn:
 # 1. severity có trong call_on_severities
@@ -114,7 +131,7 @@ def should_process(alert: dict, receiver: str, config: dict) -> bool:
 
 
 # ============================================================
-# TẠO NỘI DUNG TIN NHẮN CÓ TAG NGƯỜI TRỰC
+# TẠO NỘI DUNG TIN NHẮN CÓ TAG NGƯỜI TRỰC (Ví dụ: @hieudd) + THÔNG TIN ALERT
 # ============================================================
 def build_message(alerts: list, oncall_users: list) -> str:
     lines = ["🚨 DEVOPS ALERT"]
@@ -188,8 +205,6 @@ async def call_with_retry(entity, name: str):
             call_start    = asyncio.get_event_loop().time()
             discard_event = asyncio.Event()
 
-            # FIX: dùng add_event_handler thay vì decorator
-            # để đảm bảo cleanup đúng cách trong finally
             async def call_handler(event):
                 if hasattr(event.phone_call, 'reason'):
                     discard_event.set()
@@ -294,6 +309,8 @@ async def handle_alert(group_entity, msg_id: int, oncall_users: list):
 # ============================================================
 @app.post("/webhook")
 async def alertmanager_webhook(request: Request):
+    verify_token(request)
+
     body     = await request.json()
     receiver = body.get("receiver", "")
     logger.info(f"[WEBHOOK] Receiver: {receiver} | Raw payload: {body}")

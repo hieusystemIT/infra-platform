@@ -37,6 +37,11 @@ spec:
                 secretKeyRef:
                   name: telegram-session-string
                   key: session_string
+            - name: WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: webhook-token
+                  key: token
             - name: ONCALL_CONFIG
               value: "/config/oncall.yaml"
             - name: TIMEZONE

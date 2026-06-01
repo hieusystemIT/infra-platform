@@ -32,7 +32,6 @@ oncall:
   # Chỉ xử lý alert có severity = disaster
   call_on_severities:
     - disaster
-
   # K8s alert: chỉ gọi khi namespace match pattern này
   # Infrastructure alert (không có namespace): gọi luôn
   call_on_namespace_patterns:
