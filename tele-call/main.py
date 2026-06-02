@@ -97,28 +97,21 @@ def verify_token(request: Request):
 
 # ============================================================
 # CHECK ALERT CÓ CẦN XỬ LÝ KHÔNG
-# Cả 3 điều kiện phải thỏa mãn:
-# 1. severity có trong call_on_severities
-# 2. receiver có trong call_on_receivers
-# 3. namespace match pattern HOẶC không có namespace
 # ============================================================
 def should_process(alert: dict, receiver: str, config: dict) -> bool:
     call_on_severities         = config.get("call_on_severities", [])
     call_on_receivers          = config.get("call_on_receivers", [])
     call_on_namespace_patterns = config.get("call_on_namespace_patterns", [])
 
-    # 1. Check severity
     severity = alert["labels"].get("severity", "")
     if severity not in call_on_severities:
         logger.debug(f"[FILTER] Skip — severity '{severity}' not in call_on_severities")
         return False
 
-    # 2. Check receiver
     if receiver not in call_on_receivers:
         logger.debug(f"[FILTER] Skip — receiver '{receiver}' not in call_on_receivers")
         return False
 
-    # 3. Check namespace
     namespace = alert["labels"].get("namespace")
     if namespace:
         matched = any(re.match(p, namespace) for p in call_on_namespace_patterns)
@@ -126,12 +119,11 @@ def should_process(alert: dict, receiver: str, config: dict) -> bool:
             logger.debug(f"[FILTER] Skip — namespace '{namespace}' not match patterns")
         return matched
     else:
-        # Infrastructure alert (PostgreSQL, VM...) — gọi luôn
         return True
 
 
 # ============================================================
-# TẠO NỘI DUNG TIN NHẮN CÓ TAG NGƯỜI TRỰC (Ví dụ: @hieudd) + THÔNG TIN ALERT
+# TẠO NỘI DUNG TIN NHẮN CÓ TAG NGƯỜI TRỰC
 # ============================================================
 def build_message(alerts: list, oncall_users: list) -> str:
     lines = ["🚨 DEVOPS ALERT"]
@@ -149,7 +141,6 @@ def build_message(alerts: list, oncall_users: list) -> str:
         severity = alert["labels"].get("severity", "unknown").upper()
         summary  = alert["annotations"].get("summary") or alert["annotations"].get("description")
 
-        # Convert UTC sang giờ VN
         starts_raw = alert.get("startsAt", "")
         starts = ""
         if starts_raw and starts_raw != "0001-01-01T00:00:00Z":
@@ -180,9 +171,45 @@ def build_message(alerts: list, oncall_users: list) -> str:
 
 
 # ============================================================
-# GỌI ĐIỆN VỚI RETRY
+# CHECK NGƯỜI TRONG DANH SÁCH ĐÃ ĐỌC MESSAGE CHƯA
 # ============================================================
-async def call_with_retry(entity, name: str):
+async def is_read_by(group_entity, msg_id: int, user_ids: set) -> bool:
+    try:
+        result = await client(GetMessageReadParticipantsRequest(
+            peer=group_entity,
+            msg_id=msg_id,
+        ))
+        read_user_ids = {r.user_id for r in result}
+        logger.info(f"[READ] Message {msg_id} read by: {read_user_ids} | checking: {user_ids}")
+
+        overlap = read_user_ids & user_ids
+        if overlap:
+            logger.info(f"[READ] User(s) {overlap} already read → stopping call")
+            return True
+
+        logger.info(f"[READ] No one in list has read yet → continue calling")
+        return False
+
+    except Exception as e:
+        logger.error(f"[READ] Failed to check read status: {e}")
+        return False
+
+
+# ============================================================
+# CHECK ĐÚNG NGƯỜI TRỰC ĐÃ ĐỌC CHƯA (dùng trước khi gọi)
+# ============================================================
+async def is_oncall_read(group_entity, msg_id: int, oncall_users: list) -> bool:
+    oncall_user_ids = {person["user_id"] for person in oncall_users}
+    return await is_read_by(group_entity, msg_id, oncall_user_ids)
+
+
+# ============================================================
+# GỌI ĐIỆN VỚI RETRY + CHECK ĐỌC SAU MỖI LẦN TIMEOUT
+# check_user_ids: tập user_id cần check đọc
+# Trả về True nếu dừng do nghe/cúp/đọc
+# Trả về False nếu hết retry mà không ai phản hồi
+# ============================================================
+async def call_with_retry(entity, name: str, group_entity, msg_id: int, check_user_ids: set) -> bool:
     for attempt in range(1, MAX_RETRIES + 1):
         logger.info(f"[CALL] {name} — attempt {attempt}/{MAX_RETRIES} starting")
         responded = False
@@ -218,14 +245,13 @@ async def call_with_retry(entity, name: str):
 
                 if elapsed < 30:
                     logger.info(f"[CALL] {name} — DECLINED (< 30s) → stopping retry")
-                    responded = True
                 else:
-                    logger.info(f"[CALL] {name} — TIMEOUT (>= 30s) → will retry")
-                    responded = False
+                    logger.info(f"[CALL] {name} — ANSWERED (>= 30s) → stopping retry")
+                responded = True
 
             except asyncio.TimeoutError:
                 elapsed = asyncio.get_event_loop().time() - call_start
-                logger.info(f"[CALL] {name} — no answer after {elapsed:.0f}s → hanging up → will retry")
+                logger.info(f"[CALL] {name} — no answer after {elapsed:.0f}s → hanging up")
                 try:
                     await client(DiscardCallRequest(
                         peer=result.phone_call,
@@ -235,6 +261,12 @@ async def call_with_retry(entity, name: str):
                     ))
                 except Exception:
                     pass
+
+                # Check đọc sau mỗi lần timeout
+                if await is_read_by(group_entity, msg_id, check_user_ids):
+                    logger.info(f"[CALL] {name} — message read after timeout → stopping retry")
+                    return True
+
                 responded = False
 
             finally:
@@ -246,43 +278,93 @@ async def call_with_retry(entity, name: str):
 
         if responded:
             logger.info(f"[CALL] {name} — stopping retry")
-            break
+            return True
 
         if attempt < MAX_RETRIES:
             logger.info(f"[CALL] {name} — waiting {RETRY_DELAY}s before retry {attempt + 1}...")
             await asyncio.sleep(RETRY_DELAY)
 
-    logger.info(f"[CALL] {name} — done")
+    logger.info(f"[CALL] {name} — done, no response after {MAX_RETRIES} attempts")
+    return False
 
 
 # ============================================================
-# CHECK ĐÚNG NGƯỜI TRỰC ĐÃ ĐỌC CHƯA
+# GỌI ĐIỆN CHO 1 NGƯỜI TRỰC + ESCALATION SANG BACKUP LIST
 # ============================================================
-async def is_oncall_read(group_entity, msg_id: int, oncall_users: list) -> bool:
+async def call_person_with_escalation(oncall: dict, group_entity, msg_id: int):
+    name           = oncall["name"]
+    target         = oncall["telegram"]
+    oncall_user_id = oncall["user_id"]
+
+    # Check trực đọc trước khi gọi
+    if await is_read_by(group_entity, msg_id, {oncall_user_id}):
+        logger.info(f"[CALL] {name} — already read before calling → skip")
+        return
+
     try:
-        result = await client(GetMessageReadParticipantsRequest(
-            peer=group_entity,
-            msg_id=msg_id,
-        ))
-        read_user_ids   = {r.user_id for r in result}
-        oncall_user_ids = {person["user_id"] for person in oncall_users}
-        logger.info(f"[READ] Message {msg_id} read by: {read_user_ids} | on-call: {oncall_user_ids}")
-
-        overlap = read_user_ids & oncall_user_ids
-        if overlap:
-            logger.info(f"[READ] On-call user(s) {overlap} already read → skipping call")
-            return True
-
-        logger.info(f"[READ] No on-call user has read yet → will call")
-        return False
-
+        entity = await client.get_input_entity(target)
     except Exception as e:
-        logger.error(f"[READ] Failed to check read status: {e}")
-        return False
+        logger.error(f"[CALL] Failed to get entity for {name}: {e}")
+        return
+
+    # Gọi người trực — chỉ check người trực đọc
+    responded = await call_with_retry(
+        entity, name, group_entity, msg_id,
+        check_user_ids={oncall_user_id}
+    )
+
+    if responded:
+        logger.info(f"[ESCALATION] {name} responded — no escalation needed")
+        return
+
+    # Người trực không phản hồi → escalate qua từng backup trong list
+    backup_list = oncall.get("backup", [])
+    if not backup_list:
+        logger.info(f"[ESCALATION] {name} no response and no backup configured — stopping")
+        return
+
+    # Lọc backup hợp lệ (có telegram)
+    valid_backups = [b for b in backup_list if b and b.get("telegram")]
+    if not valid_backups:
+        logger.info(f"[ESCALATION] {name} no valid backup configured — stopping")
+        return
+
+    for backup in valid_backups:
+        backup_name = backup.get("name", "backup")
+        backup_id   = backup.get("user_id")
+
+        logger.info(f"[ESCALATION] {name} no response → escalating to backup: {backup_name}")
+
+        # Check trực hoặc backup này đã đọc chưa trước khi gọi
+        check_ids = {oncall_user_id}
+        if backup_id:
+            check_ids.add(backup_id)
+
+        if await is_read_by(group_entity, msg_id, check_ids):
+            logger.info(f"[ESCALATION] Message already read before calling backup {backup_name} → stop")
+            return
+
+        try:
+            backup_entity = await client.get_input_entity(backup["telegram"])
+        except Exception as e:
+            logger.error(f"[ESCALATION] Failed to get entity for backup {backup_name}: {e}")
+            continue
+
+        # Gọi backup — check cả người trực lẫn backup đọc
+        responded = await call_with_retry(
+            backup_entity, backup_name, group_entity, msg_id,
+            check_user_ids=check_ids
+        )
+
+        if responded:
+            logger.info(f"[ESCALATION] Backup {backup_name} responded — stopping escalation")
+            return
+
+    logger.info(f"[ESCALATION] All backups exhausted for {name} — stopping")
 
 
 # ============================================================
-# XỬ LÝ ALERT: CHỜ 120S → CHECK ĐỌC → GỌI NẾU CHƯA ĐỌC
+# XỬ LÝ ALERT: CHỜ → CHECK ĐỌC → GỌI NẾU CHƯA ĐỌC
 # ============================================================
 async def handle_alert(group_entity, msg_id: int, oncall_users: list):
     logger.info(f"[ALERT] Waiting {WAIT_BEFORE_CALL}s before checking read status...")
@@ -295,13 +377,8 @@ async def handle_alert(group_entity, msg_id: int, oncall_users: list):
 
     logger.info("[ALERT] On-call user has not read — initiating calls")
     for oncall in oncall_users:
-        target = oncall["telegram"]
-        try:
-            entity = await client.get_input_entity(target)
-            asyncio.create_task(call_with_retry(entity, oncall["name"]))
-            logger.info(f"[ALERT] Call task created for {oncall['name']}")
-        except Exception as e:
-            logger.error(f"[ALERT] Failed to get entity for {oncall['name']}: {e}")
+        asyncio.create_task(call_person_with_escalation(oncall, group_entity, msg_id))
+        logger.info(f"[ALERT] Call task created for {oncall['name']}")
 
 
 # ============================================================
