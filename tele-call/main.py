@@ -243,11 +243,15 @@ async def call_with_retry(entity, name: str, group_entity, msg_id: int, check_us
                 elapsed = asyncio.get_event_loop().time() - call_start
                 logger.info(f"[CALL] {name} — call ended after {elapsed:.0f}s")
 
-                if elapsed < 30:
+                if elapsed == 0:
+                    logger.info(f"[CALL] {name} — Telegram rejected (0s) → will retry")
+                    responded = False
+                elif elapsed < 30:
                     logger.info(f"[CALL] {name} — DECLINED (< 30s) → stopping retry")
+                    responded = True
                 else:
                     logger.info(f"[CALL] {name} — ANSWERED (>= 30s) → stopping retry")
-                responded = True
+                    responded = True
 
             except asyncio.TimeoutError:
                 elapsed = asyncio.get_event_loop().time() - call_start
