@@ -41,6 +41,17 @@ client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 # Track người đang được gọi để tránh duplicate
 _calling_users: set = set()
+_calling_lock = asyncio.Lock()  # FIX 1: tránh race condition khi 2 alert cùng lúc
+
+
+# ============================================================
+# SAFE TASK WRAPPER — FIX 2: log exception thay vì silent fail
+# ============================================================
+async def safe_task(coro, name="task"):
+    try:
+        await coro
+    except Exception as e:
+        logger.error(f"[TASK] {name} failed: {e}")
 
 
 # ============================================================
@@ -309,12 +320,13 @@ async def call_person_with_escalation(oncall: dict, group_entity, msg_id: int):
     target         = oncall["telegram"]
     oncall_user_id = oncall["user_id"]
 
-    # Deduplication — nếu đang gọi người này rồi thì skip
-    if name in _calling_users:
-        logger.info(f"[CALL] {name} — already being called → skip duplicate")
-        return
+    # FIX 1: dùng lock tránh race condition khi 2 alert infra bắn cùng lúc
+    async with _calling_lock:
+        if name in _calling_users:
+            logger.info(f"[CALL] {name} — already being called → skip duplicate")
+            return
+        _calling_users.add(name)
 
-    _calling_users.add(name)
     logger.info(f"[CALL] {name} — added to calling list")
 
     try:
@@ -400,7 +412,11 @@ async def handle_alert(group_entity, msg_id: int, oncall_users: list):
 
     logger.info("[ALERT] On-call user has not read — initiating calls")
     for oncall in oncall_users:
-        asyncio.create_task(call_person_with_escalation(oncall, group_entity, msg_id))
+        # FIX 2: wrap task để log exception thay vì silent fail
+        asyncio.create_task(safe_task(
+            call_person_with_escalation(oncall, group_entity, msg_id),
+            f"call_{oncall['name']}"
+        ))
         logger.info(f"[ALERT] Call task created for {oncall['name']}")
 
 
@@ -443,9 +459,11 @@ async def alertmanager_webhook(request: Request):
             sent_msg     = await client.send_message(group_entity, message)
             logger.info(f"[WEBHOOK] Message sent to group (msg_id={sent_msg.id})")
 
-            asyncio.create_task(
-                handle_alert(group_entity, sent_msg.id, oncall_users)
-            )
+            # FIX 2: wrap task để log exception thay vì silent fail
+            asyncio.create_task(safe_task(
+                handle_alert(group_entity, sent_msg.id, oncall_users),
+                "handle_alert"
+            ))
             logger.info(f"[WEBHOOK] Will call in {WAIT_BEFORE_CALL}s if unread — alerts: {alert_names}")
 
     except Exception as e:
