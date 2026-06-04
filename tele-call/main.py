@@ -209,7 +209,7 @@ async def is_oncall_read(group_entity, msg_id: int, oncall_users: list) -> bool:
 # ============================================================
 # GỌI ĐIỆN VỚI RETRY + CHECK ĐỌC SAU MỖI LẦN TIMEOUT
 # ============================================================
-async def call_with_retry(entity, name: str, group_entity, msg_id: int, check_user_ids: set) -> bool:
+async def call_with_retry(entity, name: str, telegram: str, group_entity, msg_id: int, check_user_ids: set) -> bool:
     for attempt in range(1, MAX_RETRIES + 1):
         logger.info(f"[CALL] {name} — attempt {attempt}/{MAX_RETRIES} starting")
         responded = False
@@ -243,8 +243,8 @@ async def call_with_retry(entity, name: str, group_entity, msg_id: int, check_us
                 elapsed = asyncio.get_event_loop().time() - call_start
                 logger.info(f"[CALL] {name} — call ended after {elapsed:.0f}s")
 
-                if elapsed == 0:
-                    logger.info(f"[CALL] {name} — Telegram rejected (0s) → will retry")
+                if elapsed < 2:
+                    logger.info(f"[CALL] {name} — Telegram rejected ({elapsed:.1f}s) → will retry")
                     responded = False
                 elif elapsed < 30:
                     logger.info(f"[CALL] {name} — DECLINED (< 30s) → stopping retry")
@@ -285,6 +285,14 @@ async def call_with_retry(entity, name: str, group_entity, msg_id: int, check_us
             return True
 
         if attempt < MAX_RETRIES:
+            # Gửi message nhắc vào group trước khi retry
+            try:
+                retry_msg = f"⚠️ Đang gọi lại lần {attempt + 1}/{MAX_RETRIES} cho {telegram}..."
+                await client.send_message(group_entity, retry_msg)
+                logger.info(f"[CALL] {name} — sent retry notification for attempt {attempt + 1}")
+            except Exception as e:
+                logger.error(f"[CALL] {name} — failed to send retry notification: {e}")
+
             logger.info(f"[CALL] {name} — waiting {RETRY_DELAY}s before retry {attempt + 1}...")
             await asyncio.sleep(RETRY_DELAY)
 
@@ -323,7 +331,7 @@ async def call_person_with_escalation(oncall: dict, group_entity, msg_id: int):
 
         # Gọi người trực — chỉ check người trực đọc
         responded = await call_with_retry(
-            entity, name, group_entity, msg_id,
+            entity, name, oncall["telegram"], group_entity, msg_id,
             check_user_ids={oncall_user_id}
         )
 
@@ -363,7 +371,7 @@ async def call_person_with_escalation(oncall: dict, group_entity, msg_id: int):
                 continue
 
             responded = await call_with_retry(
-                backup_entity, backup_name, group_entity, msg_id,
+                backup_entity, backup_name, backup["telegram"], group_entity, msg_id,
                 check_user_ids=check_ids
             )
 
