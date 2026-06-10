@@ -1,4 +1,4 @@
-replicaCount: 1
+replicaCount: 0
 
 image:
   repository: hieusystemit/alert-caller
@@ -10,14 +10,14 @@ namespace: alert-caller
 env:
   timezone: "Asia/Ho_Chi_Minh"
 
-telegram:
-  credentialsSecret: telegram-credentials
-  sessionSecret: telegram-session
-  apiId: "31705467"
-  apiHash: "18a57dad4333404a859150f52f2f5190"
-  sessionString: "1BVtsOGUBuzRcK1dKdfYXDkCo-HZwGlE3F4AG46ssjJ57zF7H5EXyh4_lnGAyB_uWsVpm3PIWJgMWWjYagAwG0L_gp8O39HjIJ_z1OhVpof49BaPdbPn4ObdsC33ZMsFMJhaaA0zcJgzYzw0gxoSom67OSUn1ytoPjLpKiPZ-xqsjtdrUsNjav3TuyoshDRT8pmn59GwEfqHdp7kkUKIMtMYDFgzBvzhW8D48fEkYozJNeZifbN8OSVzHiTWVTNC2H1LQ5GtIZSAfWwfrkYcQ0LVf9NrgxFZeunUsZ2ktEP-W461M318bd48GYWx4uCA7s2ueHxCT-rTtSEYAxjreFdblD0OreR4="
+    #telegram:
+  #credentialsSecret: telegram-credentials
+    #sessionSecret: telegram-session
+    #apiId: "31705467"
+    #apiHash: "18a57dad4333404a859150f52f2f5190"
+    #sessionString: "1BVtsOGUBuzRcK1dKdfYXDkCo-HZwGlE3F4AG46ssjJ57zF7H5EXyh4_lnGAyB_uWsVpm3PIWJgMWWjYagAwG0L_gp8O39HjIJ_z1OhVpof49BaPdbPn4ObdsC33ZMsFMJhaaA0zcJgzYzw0gxoSom67OSUn1ytoPjLpKiPZ-xqsjtdrUsNjav3TuyoshDRT8pmn59GwEfqHdp7kkUKIMtMYDFgzBvzhW8D48fEkYozJNeZifbN8OSVzHiTWVTNC2H1LQ5GtIZSAfWwfrkYcQ0LVf9NrgxFZeunUsZ2ktEP-W461M318bd48GYWx4uCA7s2ueHxCT-rTtSEYAxjreFdblD0OreR4="
 
-webhookToken: "4fc809e6f4d0dd80e721d5f9bdb3936a75fb135576d60fff0074c48dd46059f9"
+    #webhookToken: "4fc809e6f4d0dd80e721d5f9bdb3936a75fb135576d60fff0074c48dd46059f9"
 
 service:
   type: ClusterIP
